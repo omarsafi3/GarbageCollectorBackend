@@ -16,9 +16,9 @@ public class BinFillSimulator {
     private final Random random = new Random();
 
     @Autowired
-    private BinService binService;
+    public BinService binService;
     @Autowired
-    private BinUpdatePublisher publisher;
+    public BinUpdatePublisher publisher;
 
     // Runs every 10 seconds
     @Scheduled(fixedRate = 10000)
@@ -30,7 +30,6 @@ public class BinFillSimulator {
 
             binService.updateBin(bin.getId(), bin);
 
-            // publish realtime update
             publisher.publishBinUpdate(bin);
         }
     }
