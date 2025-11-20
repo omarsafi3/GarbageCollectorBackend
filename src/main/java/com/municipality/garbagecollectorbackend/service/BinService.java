@@ -12,7 +12,7 @@ import java.util.List;
 public class BinService {
 
     @Autowired
-    private BinRepository binRepository;
+    public BinRepository binRepository;
 
     public List<Bin> getAllBins() {
         return binRepository.findAll();
