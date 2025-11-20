@@ -22,10 +22,10 @@ public class BinFillSimulator {
     public BinUpdatePublisher publisher;
 
     @Autowired
-    private IncidentService incidentService;
+    public IncidentService incidentService;
 
     @Autowired
-    private IncidentUpdatePublisher incidentUpdatePublisher;
+    public IncidentUpdatePublisher incidentUpdatePublisher;
 
 
     // Runs every 10 seconds

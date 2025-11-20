@@ -13,10 +13,10 @@ import java.util.List;
 public class IncidentService {
 
     @Autowired
-    private IncidentRepository incidentRepository;
+    public IncidentRepository incidentRepository;
 
     @Autowired
-    private IncidentUpdatePublisher publisher;
+    public IncidentUpdatePublisher publisher;
 
     public Incident createIncident(Incident incident) {
         incident.setCreatedAt(LocalDateTime.now());
