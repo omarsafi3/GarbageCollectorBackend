@@ -1,6 +1,7 @@
 package com.municipality.garbagecollectorbackend.service;
 
 import com.municipality.garbagecollectorbackend.model.Bin;
+import com.municipality.garbagecollectorbackend.model.Incident;
 import com.municipality.garbagecollectorbackend.repository.BinRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,6 +21,13 @@ public class BinFillSimulator {
     @Autowired
     public BinUpdatePublisher publisher;
 
+    @Autowired
+    private IncidentService incidentService;
+
+    @Autowired
+    private IncidentUpdatePublisher incidentUpdatePublisher;
+
+
     // Runs every 10 seconds
     @Scheduled(fixedRate = 10000)
     public void fillBins() {
@@ -30,8 +38,23 @@ public class BinFillSimulator {
 
             binService.updateBin(bin.getId(), bin);
 
+            // publish realtime bin update
             publisher.publishBinUpdate(bin);
+
+            // Trigger overflow incident if bin is full and no active incident exists
+            if (newLevel >= 100 && !incidentService.hasActiveOverflowIncidentForBin(bin.getId())) {
+                Incident overflowIncident = new Incident();
+                overflowIncident.setType("overflow");
+                overflowIncident.setStatus("active");
+                overflowIncident.setBin(bin);
+                overflowIncident.setCreatedAt(LocalDateTime.now());
+
+                incidentService.createIncident(overflowIncident);
+                incidentUpdatePublisher.publishIncidentUpdate(overflowIncident);
+            }
         }
     }
+
 }
+
 
