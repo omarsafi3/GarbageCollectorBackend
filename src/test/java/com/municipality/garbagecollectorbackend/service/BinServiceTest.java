@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
-import java.util.List;
 
 import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -20,8 +19,6 @@ class BinServiceTest {
     @BeforeEach
     void setup() {
         binRepository = mock(BinRepository.class);
-
-        // manual injection because your service uses @Autowired
         binService = new BinService();
         binService.binRepository = binRepository;
     }
@@ -62,7 +59,6 @@ class BinServiceTest {
     @Test
     void testDeleteBin() {
         binService.deleteBin("456");
-
         verify(binRepository, times(1)).deleteById("456");
     }
 
