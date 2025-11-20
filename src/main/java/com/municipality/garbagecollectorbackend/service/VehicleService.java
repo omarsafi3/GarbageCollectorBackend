@@ -101,6 +101,10 @@ public class VehicleService {
             bin.setStatus("active");
         }
 
+        if (vehicle.getFillLevel() >= 100) {
+            vehicle.setAvailable(false);
+        }
+
         bin.setLastUpdated(LocalDateTime.now());
 
         binRepository.save(bin);

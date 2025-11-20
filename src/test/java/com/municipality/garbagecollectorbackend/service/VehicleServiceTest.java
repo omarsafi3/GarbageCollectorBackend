@@ -84,7 +84,7 @@ class VehicleServiceTest {
         Department dep = new Department("d1", "Route 1", 10.1, 36.8);
         Vehicle v = new Vehicle(null, "Ref1", "CAR-111", 10.0, true, dep);
 
-        when(departmentRepository.existsById("d1")).thenReturn(true);
+        when(departmentRepository.findById("d1")).thenReturn(Optional.of(dep));
         when(vehicleRepository.save(v)).thenReturn(v);
 
         Vehicle saved = vehicleService.saveVehicle(v);
@@ -98,7 +98,7 @@ class VehicleServiceTest {
         Department dep = new Department("d999", "X", 0.0, 0.0);
         Vehicle v = new Vehicle(null, "Ref1", "CAR-111", 10.0, true, dep);
 
-        when(departmentRepository.existsById("d999")).thenReturn(false);
+        when(departmentRepository.findById("d999")).thenReturn(Optional.empty());
 
         assertThrows(RuntimeException.class, () -> vehicleService.saveVehicle(v));
         verify(vehicleRepository, never()).save(any());
@@ -112,7 +112,7 @@ class VehicleServiceTest {
         Vehicle update = new Vehicle(null, "NewRef", "NEW-111", 15.0, false, dep);
 
         when(vehicleRepository.findById("123")).thenReturn(Optional.of(existing));
-        when(departmentRepository.existsById("d1")).thenReturn(true);
+        when(departmentRepository.findById("d1")).thenReturn(Optional.of(dep));
         when(vehicleRepository.save(existing)).thenReturn(existing);
 
         Vehicle result = vehicleService.updateVehicle("123", update);
@@ -134,7 +134,7 @@ class VehicleServiceTest {
         Vehicle update = new Vehicle(null, "Ref", "Plate", 15.0, false, dep);
 
         when(vehicleRepository.findById("123")).thenReturn(Optional.of(existing));
-        when(departmentRepository.existsById("d999")).thenReturn(false);
+        when(departmentRepository.findById("d999")).thenReturn(Optional.empty());
 
         assertThrows(RuntimeException.class, () -> vehicleService.updateVehicle("123", update));
         verify(vehicleRepository, never()).save(any());
@@ -144,9 +144,9 @@ class VehicleServiceTest {
     void testUpdateVehicle_notFound() {
         when(vehicleRepository.findById("999")).thenReturn(Optional.empty());
 
-        Vehicle result = vehicleService.updateVehicle("999", new Vehicle());
+        assertThrows(RuntimeException.class,
+                () -> vehicleService.updateVehicle("999", new Vehicle()));
 
-        assertNull(result);
         verify(vehicleRepository, never()).save(any());
     }
 
@@ -172,6 +172,7 @@ class VehicleServiceTest {
         assertEquals(5, updatedVehicle.getFillLevel());
         assertEquals(0, bin.getFillLevel());
         assertEquals("active", bin.getStatus());
+        assertTrue(updatedVehicle.getAvailable());
     }
 
     @Test
@@ -188,7 +189,7 @@ class VehicleServiceTest {
 
         assertNotNull(updatedVehicle);
         assertEquals(100, updatedVehicle.getFillLevel());
-
+        assertFalse(updatedVehicle.getAvailable());
         assertEquals(50, bin.getFillLevel());
         assertEquals("active", bin.getStatus());
     }
