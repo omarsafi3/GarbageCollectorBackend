@@ -1,6 +1,7 @@
 package com.municipality.garbagecollectorbackend.service;
 
 import com.municipality.garbagecollectorbackend.model.Bin;
+import com.municipality.garbagecollectorbackend.model.Department;
 import com.municipality.garbagecollectorbackend.model.Vehicle;
 import com.municipality.garbagecollectorbackend.repository.BinRepository;
 import com.municipality.garbagecollectorbackend.repository.VehicleRepository;
@@ -43,32 +44,28 @@ public class VehicleService {
     public Vehicle saveVehicle(Vehicle vehicle) {
         if (vehicle.getDepartment() != null) {
             String depId = vehicle.getDepartment().getId();
-            if (!departmentRepository.existsById(depId)) {
-                throw new RuntimeException("Department not found ");
-            }
+            Department fullDep = departmentRepository.findById(depId)
+                    .orElseThrow(() -> new RuntimeException("Department not found"));
+            vehicle.setDepartment(fullDep);
         }
         return vehicleRepository.save(vehicle);
     }
 
     public Vehicle updateVehicle(String id, Vehicle updated) {
-
-        Optional<Vehicle> opt = vehicleRepository.findById(id);
-        if (opt.isEmpty()) return null;
-
-        Vehicle existing = opt.get();
-
-        if (updated.getDepartment() != null) {
-            String depId = updated.getDepartment().getId();
-            if (!departmentRepository.existsById(depId)) {
-                throw new RuntimeException("Department not found with id: " + depId);
-            }
-            existing.setDepartment(updated.getDepartment());
-        }
+        Vehicle existing = vehicleRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Vehicle not found"));
 
         existing.setReference(updated.getReference());
         existing.setPlate(updated.getPlate());
         existing.setFillLevel(updated.getFillLevel());
         existing.setAvailable(updated.getAvailable());
+
+        if (updated.getDepartment() != null) {
+            String depId = updated.getDepartment().getId();
+            Department fullDep = departmentRepository.findById(depId)
+                    .orElseThrow(() -> new RuntimeException("Department not found"));
+            existing.setDepartment(fullDep);
+        }
 
         return vehicleRepository.save(existing);
     }
