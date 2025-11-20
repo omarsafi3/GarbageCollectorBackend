@@ -1,6 +1,7 @@
 package com.municipality.garbagecollectorbackend.service;
 
 import com.municipality.garbagecollectorbackend.model.Bin;
+import com.municipality.garbagecollectorbackend.model.Department;
 import com.municipality.garbagecollectorbackend.model.Employee;
 import com.municipality.garbagecollectorbackend.repository.DepartmentRepository;
 import com.municipality.garbagecollectorbackend.repository.EmployeeRepository;
@@ -35,30 +36,30 @@ public class EmployeeService {
     }
 
     public Employee saveEmployee(Employee employee) {
-        if (employee.getDepartment() == null ||
-                !departmentRepository.existsById(employee.getDepartment().getId())) {
-            throw new RuntimeException("Department does not exist!");
+        if (employee.getDepartment() != null && employee.getDepartment().getId() != null) {
+            Department dep = departmentRepository.findById(employee.getDepartment().getId())
+                    .orElseThrow(() -> new RuntimeException("Department not found"));
+            employee.setDepartment(dep);
         }
         return employeeRepository.save(employee);
     }
 
-    public Employee updateEmployee(String id, Employee updated) {
-        return employeeRepository.findById(id).map(existing -> {
+    public Employee updateEmployee(String id, Employee updatedEmployee) {
+        Employee existing = employeeRepository.findById(id).orElse(null);
+        if (existing == null) return null;
 
-            if (updated.getDepartment() != null &&
-                    !departmentRepository.existsById(updated.getDepartment().getId())) {
-                throw new RuntimeException("Department does not exist!");
-            }
+        existing.setFirstName(updatedEmployee.getFirstName());
+        existing.setLastName(updatedEmployee.getLastName());
+        existing.setAvailable(updatedEmployee.getAvailable());
 
-            existing.setFirstName(updated.getFirstName());
-            existing.setLastName(updated.getLastName());
-            existing.setAvailable(updated.getAvailable());
-            existing.setDepartment(updated.getDepartment());
+        if (updatedEmployee.getDepartment() != null && updatedEmployee.getDepartment().getId() != null) {
+            Department dep = departmentRepository.findById(updatedEmployee.getDepartment().getId())
+                    .orElseThrow(() -> new RuntimeException("Department not found"));
+            existing.setDepartment(dep);
+        }
 
-            return employeeRepository.save(existing);
-        }).orElse(null);
+        return employeeRepository.save(existing);
     }
-
 
     public void deleteEmployee(String id) {
         employeeRepository.deleteById(id);

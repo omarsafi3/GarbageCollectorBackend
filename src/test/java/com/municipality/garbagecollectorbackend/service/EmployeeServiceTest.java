@@ -31,9 +31,10 @@ class EmployeeServiceTest {
 
     @Test
     void testGetAllEmployees() {
+        Department dep = new Department("d1", "Route 1", 10.1, 36.8);
         List<Employee> list = List.of(
-                new Employee("1", "Elyes", "Sallem", true, null),
-                new Employee("2", "Omar", "Safi", false, null)
+                new Employee("1", "Elyes", "Sallem", true, dep),
+                new Employee("2", "Omar", "Safi", false, dep)
         );
         when(employeeRepository.findAll()).thenReturn(list);
 
@@ -45,7 +46,8 @@ class EmployeeServiceTest {
 
     @Test
     void testGetEmployeeById() {
-        Employee emp = new Employee("123", "Elyes", "Sallem", false, null);
+        Department dep = new Department("d1", "Route 1", 10.1, 36.8);
+        Employee emp = new Employee("123", "Elyes", "Sallem", false, dep);
         when(employeeRepository.findById("123")).thenReturn(Optional.of(emp));
 
         Optional<Employee> result = employeeService.getEmployeeById("123");
@@ -57,10 +59,11 @@ class EmployeeServiceTest {
 
     @Test
     void testGetAvailableEmployees() {
+        Department dep = new Department("d1", "Route 1", 10.1, 36.8);
         List<Employee> employees = List.of(
-                new Employee("1", "Elyes", "Sallem", true, null),
-                new Employee("2", "Omar", "Safi", false, null),
-                new Employee("3", "abc", "def", true, null)
+                new Employee("1", "Elyes", "Sallem", true, dep),
+                new Employee("2", "Omar", "Safi", false, dep),
+                new Employee("3", "abc", "def", true, dep)
         );
 
         when(employeeRepository.findAll()).thenReturn(employees);
@@ -77,12 +80,13 @@ class EmployeeServiceTest {
         Department dep = new Department("d1", "Route 1", 10.1, 36.8);
         Employee emp = new Employee(null, "Elyes", "Sallem", true, dep);
 
-        when(departmentRepository.existsById("d1")).thenReturn(true);
+        when(departmentRepository.findById("d1")).thenReturn(Optional.of(dep));
         when(employeeRepository.save(emp)).thenReturn(emp);
 
         Employee saved = employeeService.saveEmployee(emp);
 
         assertNotNull(saved);
+        assertEquals(dep, saved.getDepartment());
         verify(employeeRepository, times(1)).save(emp);
     }
 
@@ -104,7 +108,7 @@ class EmployeeServiceTest {
         Employee update = new Employee(null, "Omar", "Safi", false, dep);
 
         when(employeeRepository.findById("123")).thenReturn(Optional.of(existing));
-        when(departmentRepository.existsById("d1")).thenReturn(true);
+        when(departmentRepository.findById("d1")).thenReturn(Optional.of(dep));
         when(employeeRepository.save(existing)).thenReturn(existing);
 
         Employee result = employeeService.updateEmployee("123", update);
