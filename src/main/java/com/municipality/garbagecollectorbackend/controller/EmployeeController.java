@@ -34,13 +34,26 @@ public class EmployeeController {
     }
 
     @PostMapping
-    public Employee createEmployee(@RequestBody Employee employee) {
-        return employeeService.saveEmployee(employee);
+    public ResponseEntity<?> createEmployee(@RequestBody Employee employee) {
+        try {
+            Employee saved = employeeService.saveEmployee(employee);
+            return ResponseEntity.ok(saved);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     @PutMapping("/{id}")
-    public Employee updateEmployee(@PathVariable String id, @RequestBody Employee employee) {
-        return employeeService.updateEmployee(id, employee);
+    public ResponseEntity<?> updateEmployee(@PathVariable String id, @RequestBody Employee employee) {
+        try {
+            Employee updated = employeeService.updateEmployee(id, employee);
+            if (updated == null) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.ok(updated);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     @DeleteMapping("/{id}")
