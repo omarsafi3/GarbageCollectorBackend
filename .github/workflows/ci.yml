@@ -1,15 +1,15 @@
 name: Java CI
 
-# Trigger CI on push or PR to main and feature branches
+# Trigger CI on push, PR to main/feature branches, or manually
 on:
   push:
     branches: [ main, feature/* ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:   # <-- allows manual trigger from GitHub UI
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
