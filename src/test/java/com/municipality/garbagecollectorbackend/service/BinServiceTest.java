@@ -26,6 +26,7 @@ class BinServiceTest {
         binService.binRepository = binRepository;
     }
 
+
     @Test
     void testSaveBin() {
         Bin bin = new Bin();
