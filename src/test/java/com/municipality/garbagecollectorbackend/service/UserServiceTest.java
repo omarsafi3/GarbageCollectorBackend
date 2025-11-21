@@ -5,30 +5,38 @@ import com.municipality.garbagecollectorbackend.model.Role;
 import com.municipality.garbagecollectorbackend.model.User;
 import com.municipality.garbagecollectorbackend.repository.DepartmentRepository;
 import com.municipality.garbagecollectorbackend.repository.UserRepository;
-import org.junit.jupiter.api.BeforeEach;
+import com.municipality.garbagecollectorbackend.util.CustomUserDetails;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
 class UserServiceTest {
 
+    @Mock
     private UserRepository userRepository;
+
+    @Mock
     private DepartmentRepository departmentRepository;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
+    @InjectMocks
     private UserService userService;
-
-    @BeforeEach
-    void setup() {
-        userRepository = mock(UserRepository.class);
-        departmentRepository = mock(DepartmentRepository.class);
-
-        userService = new UserService();
-        userService.userRepository = userRepository;
-        userService.departmentRepository = departmentRepository;
-    }
 
     @Test
     void testGetAllUsers() {
@@ -36,7 +44,6 @@ class UserServiceTest {
                 new User("1", "u1", "p1", Role.ADMIN, "d1"),
                 new User("2", "u2", "p2", Role.SUPER_ADMIN, null)
         );
-
         when(userRepository.findAll()).thenReturn(users);
 
         List<User> result = userService.getAllUsers();
@@ -71,6 +78,7 @@ class UserServiceTest {
         User user = new User(null, "super", "pass", Role.ADMIN, "d1");
         when(userRepository.findByUsername("super")).thenReturn(Optional.empty());
         when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(passwordEncoder.encode(anyString())).thenAnswer(i -> i.getArgument(0));
 
         User saved = userService.createSuperAdmin(user);
 
@@ -99,6 +107,7 @@ class UserServiceTest {
         when(userRepository.findByUsername("admin")).thenReturn(Optional.empty());
         when(departmentRepository.findById("d10")).thenReturn(Optional.of(dep));
         when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(passwordEncoder.encode(anyString())).thenAnswer(i -> i.getArgument(0));
 
         User saved = userService.createAdmin(user, "d10");
 
@@ -141,6 +150,7 @@ class UserServiceTest {
         when(userRepository.findById("1")).thenReturn(Optional.of(existing));
         when(userRepository.findByUsername("new")).thenReturn(Optional.empty());
         when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(passwordEncoder.encode(anyString())).thenAnswer(i -> i.getArgument(0));
 
         User result = userService.updateUser("1", updated);
 
@@ -181,5 +191,26 @@ class UserServiceTest {
     void testDeleteUser() {
         userService.deleteUser("10");
         verify(userRepository).deleteById("10");
+    }
+
+    @Test
+    void testLoadUserByUsername_success() {
+        User user = new User("1", "john", "pass", Role.ADMIN, "d1");
+        when(userRepository.findByUsername("john")).thenReturn(Optional.of(user));
+
+        UserDetails userDetails = userService.loadUserByUsername("john");
+
+        assertTrue(userDetails instanceof CustomUserDetails);
+        assertEquals("john", userDetails.getUsername());
+        assertEquals("pass", userDetails.getPassword());
+        assertEquals(1, userDetails.getAuthorities().size());
+    }
+
+    @Test
+    void testLoadUserByUsername_notFound() {
+        when(userRepository.findByUsername("unknown")).thenReturn(Optional.empty());
+
+        assertThrows(UsernameNotFoundException.class,
+                () -> userService.loadUserByUsername("unknown"));
     }
 }
