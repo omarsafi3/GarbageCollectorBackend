@@ -1,6 +1,10 @@
 package com.municipality.garbagecollectorbackend.controller;
 
 import com.municipality.garbagecollectorbackend.model.Department;
+import com.municipality.garbagecollectorbackend.model.Employee;
+import com.municipality.garbagecollectorbackend.model.Vehicle;
+import com.municipality.garbagecollectorbackend.repository.EmployeeRepository;
+import com.municipality.garbagecollectorbackend.repository.VehicleRepository;
 import com.municipality.garbagecollectorbackend.service.DepartmentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +18,12 @@ public class DepartmentController {
 
     @Autowired
     private DepartmentService departmentService;
+
+    @Autowired
+    private EmployeeRepository employeeRepository;
+
+    @Autowired
+    private VehicleRepository vehicleRepository;
 
     @GetMapping
     public List<Department> getAllDepartments() {
@@ -38,5 +48,14 @@ public class DepartmentController {
     @DeleteMapping("/{id}")
     public void deleteDepartment(@PathVariable String id) {
         departmentService.deleteDepartment(id);
+    }
+    @GetMapping("/{id}/employees")
+    public List<Employee> getDepartmentEmployees(@PathVariable String id) {
+        return employeeRepository.findByDepartmentId(id);
+    }
+
+    @GetMapping("/{id}/vehicles")
+    public List<Vehicle> getDepartmentVehicles(@PathVariable String id) {
+        return vehicleRepository.findByDepartmentId(id);
     }
 }

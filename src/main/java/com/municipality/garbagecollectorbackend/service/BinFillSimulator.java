@@ -29,7 +29,7 @@ public class BinFillSimulator {
 
 
     // Runs every 10 seconds
-    @Scheduled(fixedRate = 10000)
+    @Scheduled(fixedRate = 1000)
     public void fillBins() {
         List<Bin> bins = binService.getAllBins();
         for (Bin bin : bins) {
