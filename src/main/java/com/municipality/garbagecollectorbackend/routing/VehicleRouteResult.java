@@ -1,15 +1,16 @@
-
 package com.municipality.garbagecollectorbackend.routing;
 
 import java.util.List;
 
 public class VehicleRouteResult {
     private String vehicleId;
-    private List<String> binIds;
+    private List<String> orderedBinIds;  // ✅ Field name
 
-    public VehicleRouteResult(String vehicleId, List<String> binIds) {
+    public VehicleRouteResult() {}
+
+    public VehicleRouteResult(String vehicleId, List<String> orderedBinIds) {
         this.vehicleId = vehicleId;
-        this.binIds = binIds;
+        this.orderedBinIds = orderedBinIds;
     }
 
     public String getVehicleId() {
@@ -20,11 +21,11 @@ public class VehicleRouteResult {
         this.vehicleId = vehicleId;
     }
 
-    public List<String> getBinIds() {
-        return binIds;
+    public List<String> getOrderedBinIds() {  // ✅ Getter name matches field
+        return orderedBinIds;
     }
 
-    public void setBinIds(List<String> binIds) {
-        this.binIds = binIds;
+    public void setOrderedBinIds(List<String> orderedBinIds) {
+        this.orderedBinIds = orderedBinIds;
     }
 }

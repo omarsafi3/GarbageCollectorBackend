@@ -2,13 +2,15 @@ package com.municipality.garbagecollectorbackend.routing;
 
 import com.municipality.garbagecollectorbackend.model.Bin;
 import com.municipality.garbagecollectorbackend.model.Department;
+import com.municipality.garbagecollectorbackend.model.DTO;
 import com.municipality.garbagecollectorbackend.model.Employee;
 import com.municipality.garbagecollectorbackend.model.Vehicle;
-import com.municipality.garbagecollectorbackend.model.DTO;
+import com.municipality.garbagecollectorbackend.model.Incident;
 import com.municipality.garbagecollectorbackend.service.BinService;
 import com.municipality.garbagecollectorbackend.service.DepartmentService;
 import com.municipality.garbagecollectorbackend.service.EmployeeService;
 import com.municipality.garbagecollectorbackend.service.VehicleService;
+import com.municipality.garbagecollectorbackend.service.IncidentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +20,7 @@ import java.util.stream.Collectors;
 /**
  * Orchestrates department-level routing:
  * - determines which vehicles can leave (2 available employees per truck),
+ * - selects and prioritizes bins (OVERFILL first, then fillLevel >= 70),
  * - delegates VRP to RouteOptimizationService,
  * - maps routes to DTOs.
  */
@@ -29,6 +32,7 @@ public class DepartmentRoutingService {
     private final DepartmentService departmentService;
     private final VehicleService vehicleService;
     private final EmployeeService employeeService;
+    private final IncidentService incidentService;
 
     @Autowired
     public DepartmentRoutingService(
@@ -36,23 +40,22 @@ public class DepartmentRoutingService {
             BinService binService,
             DepartmentService departmentService,
             VehicleService vehicleService,
-            EmployeeService employeeService
+            EmployeeService employeeService,
+            IncidentService incidentService
     ) {
         this.routeOptimizationService = routeOptimizationService;
         this.binService = binService;
         this.departmentService = departmentService;
         this.vehicleService = vehicleService;
         this.employeeService = employeeService;
+        this.incidentService = incidentService;
     }
 
     /**
-     * Business use-case:
-     * Optimize routes for a department, considering:
-     * - only bins with fillLevel >= 70,
+     * Optimize routes for a department considering:
+     * - bins prioritized by incidents (OVERFILL first, then fillLevel >= 70),
      * - only vehicles and employees of that department,
-     * - dispatch rule: 2 available employees required per active truck.
-     *
-     * Returns one route per active vehicle.
+     * - dispatch rule: 2 available employees per active truck.
      */
     public List<DepartmentRouteDTO> optimizeDepartmentRoutes(String departmentId, double maxRangeKm) {
         Optional<Department> departmentOpt = departmentService.getDepartmentById(departmentId);
@@ -61,17 +64,58 @@ public class DepartmentRoutingService {
         }
         Department department = departmentOpt.get();
 
-        // 1) Candidate bins: current rule = fillLevel >= 70
-        List<Bin> bins = binService.getAllBins().stream()
-                .filter(bin -> bin.getFillLevel() >= 70)
-                .toList();
+        // ---------- 1) BINS WITH PRIORITY (OVERFILL FIRST) ----------
 
-        if (bins.isEmpty()) {
-            System.out.println("[DeptRouting] No bins with fillLevel >= 70 for department " + departmentId);
+        // all bins (no direct department reference on Bin)
+        List<Bin> allBins = binService.getAllBins();
+
+        if (allBins.isEmpty()) {
+            System.out.println("[DeptRouting] No bins in system");
             return List.of();
         }
 
-        // 2) Employees of this department
+        // ACTIVE incidents
+        List<Incident> activeIncidents = incidentService.getActiveIncidents();
+
+        // ACTIVE OVERFILL incidents (bin != null)
+        List<Incident> activeOverfillIncidents = activeIncidents.stream()
+                .filter(i -> "OVERFILL".equalsIgnoreCase(i.getType())
+                        && i.getBin() != null)
+                .toList();
+
+        // IDs of bins that have an OVERFILL incident
+        Set<String> overfillBinIds = activeOverfillIncidents.stream()
+                .map(i -> i.getBin().getId())
+                .collect(Collectors.toSet());
+
+        // overfilled bins (priority)
+        List<Bin> overfillBins = allBins.stream()
+                .filter(b -> overfillBinIds.contains(b.getId()))
+                .toList();
+
+        // normal high-fill bins (>= 70) without overfill incident
+        List<Bin> normalHighBins = allBins.stream()
+                .filter(b -> b.getFillLevel() >= 70 && !overfillBinIds.contains(b.getId()))
+                .toList();
+
+        // final candidate bins: overfill first, then high-fill
+        List<Bin> bins = new ArrayList<>();
+        bins.addAll(overfillBins);
+        bins.addAll(normalHighBins);
+
+        if (bins.isEmpty()) {
+            System.out.println("[DeptRouting] No candidate bins (no OVERFILL and no bin >= 70%)");
+            return List.of();
+        }
+
+        System.out.println("[DeptRouting] Bins summary:");
+        System.out.println("  overfillBins=" + overfillBins.size()
+                + ", normalHighBins=" + normalHighBins.size()
+                + ", total=" + bins.size());
+
+        // ---------- 2) EMPLOYEES & VEHICLES (DISPATCH RULE) ----------
+
+        // employees of this department
         List<Employee> employeesInDept = employeeService.getAllEmployees().stream()
                 .filter(e -> e.getDepartment() != null &&
                         departmentId.equals(e.getDepartment().getId()))
@@ -81,7 +125,7 @@ public class DepartmentRoutingService {
                 .filter(Employee::getAvailable)
                 .count();
 
-        // 3) Vehicles of this department
+        // vehicles of this department
         List<Vehicle> vehiclesInDept = vehicleService.getAllVehicles().stream()
                 .filter(v -> v.getDepartment() != null &&
                         departmentId.equals(v.getDepartment().getId()))
@@ -94,8 +138,8 @@ public class DepartmentRoutingService {
         int availableEmployees = (int) availableEmployeesInDept;
         int availableVehicles = availableVehiclesInDept.size();
 
-        // 4) Dispatch rule: 2 available employees per truck
-        int maxTrucksByStaff = availableEmployees / 2;  // floor
+        // rule: 2 available employees per truck
+        int maxTrucksByStaff = availableEmployees / 2;
         int maxActiveVehicles = Math.min(maxTrucksByStaff, availableVehicles);
 
         System.out.println("[DeptRouting] Department " + departmentId + " dispatch info:");
@@ -111,7 +155,7 @@ public class DepartmentRoutingService {
             return List.of();
         }
 
-        // 5) Select first N available vehicles as active trucks (can refine later)
+        // select first N available vehicles as active trucks
         List<Vehicle> selectedVehicles = availableVehiclesInDept.stream()
                 .limit(maxActiveVehicles)
                 .toList();
@@ -120,23 +164,26 @@ public class DepartmentRoutingService {
         selectedVehicles.forEach(v ->
                 System.out.println("  " + v.getId() + " (" + v.getReference() + ")"));
 
-        // 6) Delegate multi-vehicle optimization to RouteOptimizationService
+        // ---------- 3) DELEGATE TO VRP SOLVER ----------
+
         List<VehicleRouteResult> routeResults =
                 routeOptimizationService.optimizeDepartmentRoutes(
                         Optional.of(department),
                         selectedVehicles,
                         bins,
-                        maxRangeKm
+                        maxRangeKm,
+                        overfillBinIds
                 );
 
-        // 7) Map binIds back to Bin and then to DTOs per vehicle
+        // ---------- 4) MAP TO DTOs ----------
+
         Map<String, Bin> binIdMap = bins.stream()
                 .collect(Collectors.toMap(bin -> bin.getId().toString(), bin -> bin));
 
         List<DepartmentRouteDTO> response = new ArrayList<>();
         for (VehicleRouteResult r : routeResults) {
             String vehicleId = r.getVehicleId();
-            List<String> binIds = r.getBinIds();
+            List<String> binIds = r.getOrderedBinIds();
 
             List<DTO.BinDTO> binDtos = binIds.stream()
                     .map(binIdMap::get)
@@ -153,9 +200,7 @@ public class DepartmentRoutingService {
         return response;
     }
 
-    /**
-     * DTO returned to controllers: per-vehicle route for a department.
-     */
+    /** DTO returned to controllers: per-vehicle route for a department. */
     public static class DepartmentRouteDTO {
         private String vehicleId;
         private List<DTO.BinDTO> bins;
@@ -179,6 +224,18 @@ public class DepartmentRoutingService {
 
         public void setBins(List<DTO.BinDTO> bins) {
             this.bins = bins;
+        }
+    }
+    public void executeRoute(String vehicleId, List<String> binIdsInOrder) {
+        for (String binId : binIdsInOrder) {
+            Vehicle v = vehicleService.getVehicleById(vehicleId)
+                    .orElseThrow(() -> new RuntimeException("Vehicle not found"));
+
+            if (!Boolean.TRUE.equals(v.getAvailable()) || v.getFillLevel() >= 100.0) {
+                break; // truck is full, stop loading more bins
+            }
+
+            vehicleService.emptyBin(vehicleId, binId);
         }
     }
 }

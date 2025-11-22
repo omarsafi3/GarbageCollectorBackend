@@ -20,10 +20,12 @@ public class IncidentService {
 
     public Incident createIncident(Incident incident) {
         incident.setCreatedAt(LocalDateTime.now());
+        incident.setStatus("ACTIVE");              // enforce status on creation
         Incident saved = incidentRepository.save(incident);
         publisher.publishIncidentUpdate(saved);
         return saved;
     }
+
 
     public List<Incident> getAllIncidents() {
         return incidentRepository.findAll();
@@ -32,7 +34,7 @@ public class IncidentService {
     public Incident resolveIncident(String id) {
         return incidentRepository.findById(id)
                 .map(i -> {
-                    i.setStatus("resolved");
+                    i.setStatus("RESOLVED");
                     i.setResolvedAt(LocalDateTime.now());
                     Incident updated = incidentRepository.save(i);
                     publisher.publishIncidentUpdate(updated);
@@ -40,12 +42,14 @@ public class IncidentService {
                 })
                 .orElse(null);
     }
+
     public boolean hasActiveOverflowIncidentForBin(String binId) {
-        return incidentRepository.findByBin_IdAndStatus(binId, "active")
+        return incidentRepository.findByBin_IdAndStatus(binId, "ACTIVE")
                 .stream()
-                .anyMatch(incident -> "overflow".equals(incident.getType()));
+                .anyMatch(incident -> "OVERFILL".equals(incident.getType()));
     }
+
     public List<Incident> getActiveIncidents() {
-        return incidentRepository.findByStatus("active");
+        return incidentRepository.findByStatus("ACTIVE");
     }
 }

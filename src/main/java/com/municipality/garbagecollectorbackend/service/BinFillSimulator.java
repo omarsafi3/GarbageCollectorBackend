@@ -29,7 +29,7 @@ public class BinFillSimulator {
 
 
     // Runs every 10 seconds
-    @Scheduled(fixedRate = 1000)
+    @Scheduled(fixedRate = 20000)
     public void fillBins() {
         List<Bin> bins = binService.getAllBins();
         for (Bin bin : bins) {
@@ -44,13 +44,13 @@ public class BinFillSimulator {
             // Trigger overflow incident if bin is full and no active incident exists
             if (newLevel >= 100 && !incidentService.hasActiveOverflowIncidentForBin(bin.getId())) {
                 Incident overflowIncident = new Incident();
-                overflowIncident.setType("overflow");
-                overflowIncident.setStatus("active");
+                overflowIncident.setType("OVERFILL");   // use same constant
+                overflowIncident.setStatus("ACTIVE");   // will be overwritten by createIncident, but consistent
                 overflowIncident.setBin(bin);
                 overflowIncident.setCreatedAt(LocalDateTime.now());
 
                 incidentService.createIncident(overflowIncident);
-                incidentUpdatePublisher.publishIncidentUpdate(overflowIncident);
+                // no need to call incidentUpdatePublisher here, createIncident already publishes
             }
         }
     }
