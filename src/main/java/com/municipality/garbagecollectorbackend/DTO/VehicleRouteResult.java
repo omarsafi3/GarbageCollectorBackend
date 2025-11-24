@@ -1,7 +1,9 @@
-package com.municipality.garbagecollectorbackend.routing;
+package com.municipality.garbagecollectorbackend.DTO;
+
+import lombok.Data;
 
 import java.util.List;
-
+@Data
 public class VehicleRouteResult {
     private String vehicleId;
     private List<String> orderedBinIds;  // ✅ Field name

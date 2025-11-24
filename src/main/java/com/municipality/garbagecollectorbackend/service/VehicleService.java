@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 public class VehicleService {
@@ -42,10 +43,12 @@ public class VehicleService {
     }
 
     public List<Vehicle> getAvailableVehicles() {
-        return vehicleRepository.findAll()
-                .stream()
-                .filter(Vehicle::getAvailable)
-                .toList();
+        // ✅ OLD: return vehicleRepository.findByAvailable(true);
+
+        // ✅ NEW: Only return vehicles that are AVAILABLE status
+        return vehicleRepository.findAll().stream()
+                .filter(v -> v.getStatus() == Vehicle.VehicleStatus.AVAILABLE)
+                .collect(Collectors.toList());
     }
 
     public Vehicle saveVehicle(Vehicle vehicle) {
@@ -123,6 +126,113 @@ public class VehicleService {
 
         return updatedVehicle;
     }
+
+    public Vehicle startRoute(String vehicleId) {
+        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new RuntimeException("Vehicle not found"));
+
+        // Check if vehicle is available
+        if (vehicle.getStatus() != Vehicle.VehicleStatus.AVAILABLE) {
+            throw new RuntimeException("Vehicle is not available (status: " + vehicle.getStatus() + ")");
+        }
+
+        // Set to IN_ROUTE
+        vehicle.setStatus(Vehicle.VehicleStatus.IN_ROUTE);
+        vehicle.setAvailable(false);
+        vehicle.setStatusUpdatedAt(LocalDateTime.now());
+
+        Vehicle updated = vehicleRepository.save(vehicle);
+
+        System.out.println("🚀 Vehicle " + vehicleId + " started route - Status: IN_ROUTE");
+
+        return updated;
+    }
+    public Vehicle completeRoute(String vehicleId) {
+        Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                .orElseThrow(() -> new RuntimeException("Vehicle not found"));
+
+        if (vehicle.getStatus() != Vehicle.VehicleStatus.IN_ROUTE) {
+            System.out.println("⚠️ Vehicle " + vehicleId + " was not IN_ROUTE (status: " + vehicle.getStatus() + ")");
+        }
+
+        // Set to RETURNING (going back to depot)
+        vehicle.setStatus(Vehicle.VehicleStatus.RETURNING);
+        vehicle.setStatusUpdatedAt(LocalDateTime.now());
+        vehicleRepository.save(vehicle);
+
+        System.out.println("🏁 Vehicle " + vehicleId + " completed route - Status: RETURNING to depot");
+
+        // ✅ NEW: Start unloading after 3 seconds in a separate thread
+        new Thread(() -> {
+            try {
+                Thread.sleep(3000);
+
+                Vehicle v = vehicleRepository.findById(vehicleId).orElse(null);
+                if (v != null) {
+                    v.setStatus(Vehicle.VehicleStatus.UNLOADING);
+                    v.setStatusUpdatedAt(LocalDateTime.now());
+                    vehicleRepository.save(v);
+
+                    // ✅ Send UNLOADING status with available=false
+                    Map<String, Object> update = new HashMap<>();
+                    update.put("vehicleId", vehicleId);
+                    update.put("status", "UNLOADING");
+                    update.put("fillLevel", v.getFillLevel());
+                    update.put("available", false);  // ✅ ADD THIS
+                    update.put("timestamp", Instant.now().toString());
+                    messagingTemplate.convertAndSend("/topic/vehicles", update);
+
+                    System.out.println("🏢 Vehicle " + vehicleId + " arrived at depot - Status: UNLOADING");
+
+                    double startFill = v.getFillLevel();
+                    for (int i = 10; i >= 0; i--) {
+                        Thread.sleep(300);
+
+                        double currentFill = startFill * (i / 10.0);
+                        v.setFillLevel(currentFill);
+                        vehicleRepository.save(v);
+
+                        // ✅ Send fill level updates with available=false
+                        update = new HashMap<>();
+                        update.put("vehicleId", vehicleId);
+                        update.put("status", "UNLOADING");
+                        update.put("fillLevel", currentFill);
+                        update.put("available", false);  // ✅ ADD THIS
+                        update.put("timestamp", Instant.now().toString());
+                        messagingTemplate.convertAndSend("/topic/vehicles", update);
+
+                        System.out.println("🔄 Vehicle " + vehicleId + " unloading: " +
+                                String.format("%.1f", currentFill) + "%");
+                    }
+
+                    // ✅ Mark as AVAILABLE
+                    v.setStatus(Vehicle.VehicleStatus.AVAILABLE);
+                    v.setFillLevel(0.0);
+                    v.setAvailable(true);  // ✅ IMPORTANT: Set available flag
+                    v.setStatusUpdatedAt(LocalDateTime.now());
+                    vehicleRepository.save(v);
+
+                    // ✅ Send AVAILABLE status with available=true
+                    update = new HashMap<>();
+                    update.put("vehicleId", vehicleId);
+                    update.put("status", "AVAILABLE");
+                    update.put("fillLevel", 0.0);
+                    update.put("available", true);  // ✅ ADD THIS
+                    update.put("timestamp", Instant.now().toString());
+                    messagingTemplate.convertAndSend("/topic/vehicles", update);
+
+                    System.out.println("✅ Vehicle " + vehicleId + " ready for new route - Status: AVAILABLE");
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }).start();
+
+        return vehicle;
+    }
+
+
+
 
 
 

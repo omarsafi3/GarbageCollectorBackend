@@ -1,5 +1,6 @@
 package com.municipality.garbagecollectorbackend.routing;
 
+import com.municipality.garbagecollectorbackend.DTO.VehicleRouteResult;
 import com.municipality.garbagecollectorbackend.model.Bin;
 import com.municipality.garbagecollectorbackend.model.Department;
 import com.municipality.garbagecollectorbackend.model.DTO;

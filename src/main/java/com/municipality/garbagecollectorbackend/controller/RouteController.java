@@ -6,19 +6,27 @@ import com.municipality.garbagecollectorbackend.model.*;
 import com.municipality.garbagecollectorbackend.routing.DepartmentRoutingService;
 import com.municipality.garbagecollectorbackend.routing.RouteExecutionService;
 import com.municipality.garbagecollectorbackend.routing.RouteOptimizationService;
-import com.municipality.garbagecollectorbackend.routing.VehicleRouteResult;
+import com.municipality.garbagecollectorbackend.DTO.VehicleRouteResult;
 import com.municipality.garbagecollectorbackend.service.BinService;
 import com.municipality.garbagecollectorbackend.service.DepartmentService;
 import com.municipality.garbagecollectorbackend.service.VehicleService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
+import com.municipality.garbagecollectorbackend.DTO.PreGeneratedRoute;
+import com.municipality.garbagecollectorbackend.model.RouteBin;
+
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.*;
 import java.util.*;
 import java.util.stream.Collectors;
-
+@Slf4j
 @RestController
 @RequestMapping("/api/routes")
 public class RouteController {
@@ -496,6 +504,9 @@ public class RouteController {
         System.out.println("🚀 Starting managed route for vehicle " + vehicleId);
 
         try {
+            // ✅ ADD THIS LINE - Set vehicle to IN_ROUTE
+            vehicleService.startRoute(vehicleId);
+
             ActiveRoute activeRoute = routeExecutionService.startRouteWithFullPath(departmentId, vehicleId);
 
             Map<String, Object> response = new HashMap<>();
@@ -517,6 +528,230 @@ public class RouteController {
 
             return ResponseEntity.badRequest().body(error);
         }
+    }
+    @GetMapping("/department/{departmentId}/available-routes")
+    public ResponseEntity<?> getAvailableRoutes(@PathVariable String departmentId) {
+        try {
+            log.info("📦 Fetching available routes for department: {}", departmentId);
+
+            List<PreGeneratedRoute> availableRoutes = routeOptimizationService.getAvailableRoutes(departmentId);
+
+            if (availableRoutes.isEmpty()) {
+                log.info("ℹ️ No available routes, triggering generation...");
+                routeOptimizationService.generateRoutesForDepartment(departmentId);
+                availableRoutes = routeOptimizationService.getAvailableRoutes(departmentId);
+            }
+
+            // Convert to response format
+            List<Map<String, Object>> response = new ArrayList<>();
+
+            for (PreGeneratedRoute route : availableRoutes) {
+                Map<String, Object> routeMap = new HashMap<>();
+                routeMap.put("routeId", route.getRouteId());
+                routeMap.put("binCount", route.getBinCount());
+                routeMap.put("generatedAt", route.getGeneratedAt());
+                routeMap.put("ageMinutes", route.getAgeInMinutes());
+                routeMap.put("isStale", route.isStale());
+                routeMap.put("available", route.isAvailable());
+
+                // Convert RouteBins to Bin objects for polyline generation
+                List<Bin> bins = new ArrayList<>();
+                for (RouteBin routeBin : route.getRouteBins()) {
+                    Bin bin = binService.getBinById(routeBin.getId());
+                    if (bin != null) {
+                        bins.add(bin);
+                    }
+                }
+
+                // ✅ FIX: Build OSRM polyline (not straight lines)
+                List<double[]> polyline = buildRoutePolyline(bins);
+
+                // Convert RouteBins for response
+                List<Map<String, Object>> binMaps = new ArrayList<>();
+                for (RouteBin bin : route.getRouteBins()) {
+                    Map<String, Object> binMap = new HashMap<>();
+                    binMap.put("id", bin.getId());
+                    binMap.put("latitude", bin.getLatitude());
+                    binMap.put("longitude", bin.getLongitude());
+                    binMaps.add(binMap);
+                }
+                routeMap.put("bins", binMaps);
+                routeMap.put("polyline", polyline);
+
+                response.add(routeMap);
+            }
+
+            log.info("✅ Returning {} available routes with OSRM polylines", response.size());
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("❌ Error fetching available routes", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch routes: " + e.getMessage()));
+        }
+    }
+
+
+    @GetMapping("/department/{departmentId}/pre-generated")
+    public ResponseEntity<?> getPreGeneratedRoutes(@PathVariable String departmentId) {
+        try {
+            log.info("📦 Fetching pre-generated routes for department: {}", departmentId);
+
+            List<PreGeneratedRoute> preGenRoutes = routeOptimizationService.getAllPreGeneratedRoutes(departmentId);
+
+            if (preGenRoutes.isEmpty()) {
+                log.info("ℹ️ No pre-generated routes found, triggering generation...");
+                routeOptimizationService.generateRoutesForDepartment(departmentId);
+                preGenRoutes = routeOptimizationService.getAllPreGeneratedRoutes(departmentId);
+            }
+
+            // Convert to response format with polylines
+            List<Map<String, Object>> response = new ArrayList<>();
+
+            for (PreGeneratedRoute route : preGenRoutes) {
+                Map<String, Object> routeMap = new HashMap<>();
+                routeMap.put("vehicleId", route.getAssignedVehicleId());
+                routeMap.put("binCount", route.getBinCount());
+                routeMap.put("generatedAt", route.getGeneratedAt());
+                routeMap.put("ageMinutes", route.getAgeInMinutes());
+                routeMap.put("isStale", route.isStale());
+
+                // ✅ FIX: Convert RouteBins to Bin objects for OSRM polyline
+                List<Bin> bins = new ArrayList<>();
+                for (RouteBin routeBin : route.getRouteBins()) {
+                    Bin bin = binService.getBinById(routeBin.getId());
+                    if (bin != null) {
+                        bins.add(bin);
+                    }
+                }
+
+                // ✅ FIX: Build OSRM polyline (not straight lines)
+                List<double[]> polyline = buildRoutePolyline(bins);
+
+                // Convert RouteBins for response
+                List<Map<String, Object>> binMaps = new ArrayList<>();
+                for (RouteBin bin : route.getRouteBins()) {
+                    Map<String, Object> binMap = new HashMap<>();
+                    binMap.put("id", bin.getId());
+                    binMap.put("latitude", bin.getLatitude());
+                    binMap.put("longitude", bin.getLongitude());
+                    binMaps.add(binMap);
+                }
+                routeMap.put("bins", binMaps);
+                routeMap.put("polyline", polyline);
+
+                response.add(routeMap);
+            }
+
+            log.info("✅ Returning {} pre-generated routes with OSRM polylines", response.size());
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("❌ Error fetching pre-generated routes", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to fetch routes: " + e.getMessage()));
+        }
+    }
+    @PostMapping("/assign-route")
+    public ResponseEntity<?> assignRouteToVehicle(
+            @RequestParam String routeId,
+            @RequestParam String vehicleId,
+            @RequestParam String departmentId) {
+
+        try {
+            log.info("🚀 Assigning route {} to vehicle {}", routeId, vehicleId);
+
+            // Assign route to vehicle
+            PreGeneratedRoute route = routeOptimizationService.assignRouteToVehicle(routeId, vehicleId);
+
+            // Get bin IDs from route
+            List<String> binIds = route.getRouteBins().stream()
+                    .map(RouteBin::getId)
+                    .collect(Collectors.toList());
+
+            log.info("📦 Route has {} bins: {}", binIds.size(), binIds);
+
+            // Start execution with specific bins
+            ActiveRoute activeRoute = routeExecutionService.startRouteWithSpecificBins(
+                    departmentId,
+                    vehicleId,
+                    binIds
+            );
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "routeId", routeId,
+                    "vehicleId", vehicleId,
+                    "binCount", route.getBinCount()
+            ));
+
+        } catch (IllegalArgumentException e) {
+            log.error("❌ Route not found: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", e.getMessage()));
+
+        } catch (IllegalStateException e) {
+            log.error("❌ Route already assigned: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", e.getMessage()));
+
+        } catch (Exception e) {
+            log.error("❌ Failed to assign route", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to assign route: " + e.getMessage()));
+        }
+    }
+
+
+
+
+    /**
+     * ✅ NEW: Manually trigger route generation
+     */
+    @PostMapping("/department/{departmentId}/generate")
+    public ResponseEntity<?> generateRoutes(@PathVariable String departmentId) {
+        try {
+            log.info("🔄 Manual route generation triggered for department: {}", departmentId);
+            routeOptimizationService.generateRoutesForDepartment(departmentId);
+
+            List<PreGeneratedRoute> routes = routeOptimizationService.getAllPreGeneratedRoutes(departmentId);
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Routes generated successfully",
+                    "routeCount", routes.size(),
+                    "generatedAt", LocalDateTime.now()
+            ));
+
+        } catch (Exception e) {
+            log.error("❌ Error generating routes", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to generate routes: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * ✅ NEW: Get route freshness info
+     */
+    @GetMapping("/department/{departmentId}/route-info")
+    public ResponseEntity<?> getRouteInfo(@PathVariable String departmentId) {
+        List<PreGeneratedRoute> routes = routeOptimizationService.getAllPreGeneratedRoutes(departmentId);
+
+        Map<String, Object> info = new HashMap<>();
+        info.put("totalRoutes", routes.size());
+        info.put("staleRoutes", routes.stream().filter(PreGeneratedRoute::isStale).count());
+
+        if (!routes.isEmpty()) {
+            PreGeneratedRoute oldest = routes.stream()
+                    .max(Comparator.comparing(PreGeneratedRoute::getAgeInMinutes))
+                    .orElse(null);
+
+            if (oldest != null) {
+                info.put("oldestRouteAge", oldest.getAgeInMinutes());
+                info.put("needsRefresh", oldest.isStale());
+            }
+        }
+
+        return ResponseEntity.ok(info);
     }
 
 }
