@@ -18,12 +18,10 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
 import com.municipality.garbagecollectorbackend.DTO.PreGeneratedRoute;
-import com.municipality.garbagecollectorbackend.model.RouteBin;
+import com.municipality.garbagecollectorbackend.DTO.RouteBin;
 
-import org.springframework.web.bind.annotation.*;
-
+import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.*;
 import java.util.*;
 import java.util.stream.Collectors;
 @Slf4j
@@ -530,65 +528,19 @@ public class RouteController {
         }
     }
     @GetMapping("/department/{departmentId}/available-routes")
-    public ResponseEntity<?> getAvailableRoutes(@PathVariable String departmentId) {
-        try {
-            log.info("📦 Fetching available routes for department: {}", departmentId);
+    public ResponseEntity<List<Map<String, Object>>> getAvailableRoutes(@PathVariable String departmentId) {
+        List<PreGeneratedRoute> routes = routeOptimizationService.getAvailableRoutes(departmentId);
 
-            List<PreGeneratedRoute> availableRoutes = routeOptimizationService.getAvailableRoutes(departmentId);
+        List<Map<String, Object>> response = routes.stream().map(route -> {
+            Map<String, Object> routeData = new HashMap<>();
+            routeData.put("routeId", route.getRouteId());
+            routeData.put("binCount", route.getBinCount());
+            routeData.put("bins", route.getRouteBins());
+            routeData.put("polyline", route.getPolyline());  // ✅ ADD THIS
+            return routeData;
+        }).collect(Collectors.toList());
 
-            if (availableRoutes.isEmpty()) {
-                log.info("ℹ️ No available routes, triggering generation...");
-                routeOptimizationService.generateRoutesForDepartment(departmentId);
-                availableRoutes = routeOptimizationService.getAvailableRoutes(departmentId);
-            }
-
-            // Convert to response format
-            List<Map<String, Object>> response = new ArrayList<>();
-
-            for (PreGeneratedRoute route : availableRoutes) {
-                Map<String, Object> routeMap = new HashMap<>();
-                routeMap.put("routeId", route.getRouteId());
-                routeMap.put("binCount", route.getBinCount());
-                routeMap.put("generatedAt", route.getGeneratedAt());
-                routeMap.put("ageMinutes", route.getAgeInMinutes());
-                routeMap.put("isStale", route.isStale());
-                routeMap.put("available", route.isAvailable());
-
-                // Convert RouteBins to Bin objects for polyline generation
-                List<Bin> bins = new ArrayList<>();
-                for (RouteBin routeBin : route.getRouteBins()) {
-                    Bin bin = binService.getBinById(routeBin.getId());
-                    if (bin != null) {
-                        bins.add(bin);
-                    }
-                }
-
-                // ✅ FIX: Build OSRM polyline (not straight lines)
-                List<double[]> polyline = buildRoutePolyline(bins);
-
-                // Convert RouteBins for response
-                List<Map<String, Object>> binMaps = new ArrayList<>();
-                for (RouteBin bin : route.getRouteBins()) {
-                    Map<String, Object> binMap = new HashMap<>();
-                    binMap.put("id", bin.getId());
-                    binMap.put("latitude", bin.getLatitude());
-                    binMap.put("longitude", bin.getLongitude());
-                    binMaps.add(binMap);
-                }
-                routeMap.put("bins", binMaps);
-                routeMap.put("polyline", polyline);
-
-                response.add(routeMap);
-            }
-
-            log.info("✅ Returning {} available routes with OSRM polylines", response.size());
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            log.error("❌ Error fetching available routes", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch routes: " + e.getMessage()));
-        }
+        return ResponseEntity.ok(response);
     }
 
 
@@ -701,8 +653,85 @@ public class RouteController {
                     .body(Map.of("error", "Failed to assign route: " + e.getMessage()));
         }
     }
+    /**
+     * ✅ NEW: Called when vehicle completes route and returns to depot
+     */
+    @PostMapping("/vehicle-returned")
+    public ResponseEntity<?> vehicleReturned(
+            @RequestParam String vehicleId,
+            @RequestParam String departmentId) {
+
+        try {
+            log.info("🏁 Vehicle {} returned to depot", vehicleId);
+
+            // Mark vehicle as available (should already be done)
+            vehicleService.completeRoute(vehicleId);
+
+            // Generate new route for this vehicle
+            routeOptimizationService.generateRouteForReturningVehicle(vehicleId, departmentId);
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "New route generated for returned vehicle"
+            ));
+
+        } catch (Exception e) {
+            log.error("❌ Error handling returned vehicle: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * ✅ NEW: Manual critical check trigger
+     */
+    @PostMapping("/check-critical-bins")
+    public ResponseEntity<?> checkCriticalBins() {
+        try {
+            log.info("🔍 Manual critical bins check triggered");
+            routeOptimizationService.checkCriticalBinsAndGenerateRoutes();
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Critical bins checked and routes generated if needed"
+            ));
+
+        } catch (Exception e) {
+            log.error("❌ Error checking critical bins: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage()));
+        }
+    }
+    /**
+     * ✅ NEW: Get all currently active vehicles
+     */
+    @GetMapping("/active-vehicles")
+    public ResponseEntity<List<Map<String, Object>>> getActiveVehicles() {
+        List<Map<String, Object>> activeVehicles = routeExecutionService.getActiveVehiclesInfo();
+        log.info("📊 Found {} active vehicles", activeVehicles.size());
+        return ResponseEntity.ok(activeVehicles);
+    }
 
 
+
+    @GetMapping("/active-route/{vehicleId}")
+    public ResponseEntity<ActiveRoute> getActiveRoute(@PathVariable String vehicleId) {
+        ActiveRoute route = routeExecutionService.getActiveRouteByVehicle(vehicleId);
+        if (route != null) {
+            log.info("📍 Found active route for vehicle {}", vehicleId);
+            return ResponseEntity.ok(route);
+        }
+        return ResponseEntity.notFound().build();
+    }
+    @PostMapping("/generate/{departmentId}")
+    public ResponseEntity<?> forceGenerateRoutes(@PathVariable String departmentId) {
+        routeOptimizationService.generateRoutesForDepartment(departmentId);
+        return ResponseEntity.ok(Map.of(
+                "message", "Routes generated",
+                "departmentId", departmentId,
+                "timestamp", Instant.now().toString()
+        ));
+    }
 
 
     /**

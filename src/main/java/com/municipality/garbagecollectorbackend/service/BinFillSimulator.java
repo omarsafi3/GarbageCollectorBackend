@@ -2,6 +2,8 @@ package com.municipality.garbagecollectorbackend.service;
 
 import com.municipality.garbagecollectorbackend.model.Bin;
 import com.municipality.garbagecollectorbackend.model.Incident;
+import com.municipality.garbagecollectorbackend.model.IncidentStatus;
+import com.municipality.garbagecollectorbackend.model.IncidentType;
 import com.municipality.garbagecollectorbackend.repository.BinRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -44,8 +46,8 @@ public class BinFillSimulator {
             // Trigger overflow incident if bin is full and no active incident exists
             if (newLevel >= 100 && !incidentService.hasActiveOverflowIncidentForBin(bin.getId())) {
                 Incident overflowIncident = new Incident();
-                overflowIncident.setType("OVERFILL");   // use same constant
-                overflowIncident.setStatus("ACTIVE");   // will be overwritten by createIncident, but consistent
+                overflowIncident.setType(IncidentType.OVERFILL);
+                overflowIncident.setStatus(IncidentStatus.ACTIVE); // will be overwritten by createIncident, but consistent
                 overflowIncident.setBin(bin);
                 overflowIncident.setCreatedAt(LocalDateTime.now());
 

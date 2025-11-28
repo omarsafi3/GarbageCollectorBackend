@@ -7,10 +7,10 @@ import com.municipality.garbagecollectorbackend.repository.BinRepository;
 import com.municipality.garbagecollectorbackend.repository.VehicleRepository;
 import com.municipality.garbagecollectorbackend.repository.DepartmentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.mongodb.core.MongoOperations;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
-
+import com.municipality.garbagecollectorbackend.routing.RouteOptimizationService;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -22,6 +22,10 @@ import java.util.stream.Collectors;
 @Service
 public class VehicleService {
 
+
+    @Autowired
+    @Lazy
+    private RouteOptimizationService routeOptimizationService;
     @Autowired
     public VehicleRepository vehicleRepository;
 
@@ -34,6 +38,10 @@ public class VehicleService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
+    // ✅ NEW: Inject EmployeeService for employee management
+    @Autowired
+    private EmployeeService employeeService;
+
     public List<Vehicle> getAllVehicles() {
         return vehicleRepository.findAll();
     }
@@ -43,9 +51,6 @@ public class VehicleService {
     }
 
     public List<Vehicle> getAvailableVehicles() {
-        // ✅ OLD: return vehicleRepository.findByAvailable(true);
-
-        // ✅ NEW: Only return vehicles that are AVAILABLE status
         return vehicleRepository.findAll().stream()
                 .filter(v -> v.getStatus() == Vehicle.VehicleStatus.AVAILABLE)
                 .collect(Collectors.toList());
@@ -116,7 +121,6 @@ public class VehicleService {
         binRepository.save(bin);
         Vehicle updatedVehicle = vehicleRepository.save(vehicle);
 
-        // 🔥 ADD THESE 7 LINES - WebSocket update:
         Map<String, Object> update = new HashMap<>();
         update.put("vehicleId", vehicleId);
         update.put("fillLevel", updatedVehicle.getFillLevel());
@@ -127,26 +131,36 @@ public class VehicleService {
         return updatedVehicle;
     }
 
+    // ✅ UPDATED: Check for employees before starting route
     public Vehicle startRoute(String vehicleId) {
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
                 .orElseThrow(() -> new RuntimeException("Vehicle not found"));
 
-        // Check if vehicle is available
+        // ✅ NEW: Check if vehicle is available
         if (vehicle.getStatus() != Vehicle.VehicleStatus.AVAILABLE) {
             throw new RuntimeException("Vehicle is not available (status: " + vehicle.getStatus() + ")");
         }
 
-        // Set to IN_ROUTE
+        // ✅ NEW: Check if vehicle has 2 employees assigned
+        if (!employeeService.vehicleHasRequiredEmployees(vehicleId)) {
+            throw new RuntimeException("Vehicle must have 2 employees assigned before starting route");
+        }
+
+        // ✅ NEW: Mark employees as IN_ROUTE
+        employeeService.markEmployeesInRoute(vehicleId);
+
+        // Set vehicle to IN_ROUTE
         vehicle.setStatus(Vehicle.VehicleStatus.IN_ROUTE);
         vehicle.setAvailable(false);
         vehicle.setStatusUpdatedAt(LocalDateTime.now());
 
         Vehicle updated = vehicleRepository.save(vehicle);
 
-        System.out.println("🚀 Vehicle " + vehicleId + " started route - Status: IN_ROUTE");
+        System.out.println("🚀 Vehicle " + vehicleId + " started route with 2 employees - Status: IN_ROUTE");
 
         return updated;
     }
+
     public Vehicle completeRoute(String vehicleId) {
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
                 .orElseThrow(() -> new RuntimeException("Vehicle not found"));
@@ -162,7 +176,10 @@ public class VehicleService {
 
         System.out.println("🏁 Vehicle " + vehicleId + " completed route - Status: RETURNING to depot");
 
-        // ✅ NEW: Start unloading after 3 seconds in a separate thread
+        // ✅ CAPTURE DEPARTMENT ID BEFORE THREAD
+        String departmentId = vehicle.getDepartment() != null ? vehicle.getDepartment().getId() : null;
+
+        // Start unloading process in a separate thread
         new Thread(() -> {
             try {
                 Thread.sleep(3000);
@@ -173,12 +190,11 @@ public class VehicleService {
                     v.setStatusUpdatedAt(LocalDateTime.now());
                     vehicleRepository.save(v);
 
-                    // ✅ Send UNLOADING status with available=false
                     Map<String, Object> update = new HashMap<>();
                     update.put("vehicleId", vehicleId);
                     update.put("status", "UNLOADING");
                     update.put("fillLevel", v.getFillLevel());
-                    update.put("available", false);  // ✅ ADD THIS
+                    update.put("available", false);
                     update.put("timestamp", Instant.now().toString());
                     messagingTemplate.convertAndSend("/topic/vehicles", update);
 
@@ -192,12 +208,11 @@ public class VehicleService {
                         v.setFillLevel(currentFill);
                         vehicleRepository.save(v);
 
-                        // ✅ Send fill level updates with available=false
                         update = new HashMap<>();
                         update.put("vehicleId", vehicleId);
                         update.put("status", "UNLOADING");
                         update.put("fillLevel", currentFill);
-                        update.put("available", false);  // ✅ ADD THIS
+                        update.put("available", false);
                         update.put("timestamp", Instant.now().toString());
                         messagingTemplate.convertAndSend("/topic/vehicles", update);
 
@@ -205,23 +220,35 @@ public class VehicleService {
                                 String.format("%.1f", currentFill) + "%");
                     }
 
-                    // ✅ Mark as AVAILABLE
+                    // Release employees when unloading complete
+                    employeeService.releaseEmployeesFromVehicle(vehicleId);
+
+                    // Mark as AVAILABLE
                     v.setStatus(Vehicle.VehicleStatus.AVAILABLE);
                     v.setFillLevel(0.0);
-                    v.setAvailable(true);  // ✅ IMPORTANT: Set available flag
+                    v.setAvailable(true);
                     v.setStatusUpdatedAt(LocalDateTime.now());
                     vehicleRepository.save(v);
 
-                    // ✅ Send AVAILABLE status with available=true
                     update = new HashMap<>();
                     update.put("vehicleId", vehicleId);
                     update.put("status", "AVAILABLE");
                     update.put("fillLevel", 0.0);
-                    update.put("available", true);  // ✅ ADD THIS
+                    update.put("available", true);
                     update.put("timestamp", Instant.now().toString());
                     messagingTemplate.convertAndSend("/topic/vehicles", update);
 
-                    System.out.println("✅ Vehicle " + vehicleId + " ready for new route - Status: AVAILABLE");
+                    System.out.println("✅ Vehicle " + vehicleId + " ready for new route - Status: AVAILABLE, employees released");
+
+                    // ✅ NEW: Generate new route for this vehicle immediately
+                    if (departmentId != null) {
+                        try {
+                            System.out.println("🔄 Triggering route generation for returned vehicle " + vehicleId);
+                            routeOptimizationService.generateRouteForReturningVehicle(vehicleId, departmentId);
+                        } catch (Exception e) {
+                            System.err.println("❌ Failed to generate route for returned vehicle: " + e.getMessage());
+                        }
+                    }
                 }
             } catch (InterruptedException e) {
                 e.printStackTrace();
@@ -230,13 +257,4 @@ public class VehicleService {
 
         return vehicle;
     }
-
-
-
-
-
-
-
-
-
 }

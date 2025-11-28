@@ -1,12 +1,7 @@
 package com.municipality.garbagecollectorbackend.routing;
 
 import com.municipality.garbagecollectorbackend.DTO.VehicleRouteResult;
-import com.municipality.garbagecollectorbackend.model.Bin;
-import com.municipality.garbagecollectorbackend.model.Department;
-import com.municipality.garbagecollectorbackend.model.DTO;
-import com.municipality.garbagecollectorbackend.model.Employee;
-import com.municipality.garbagecollectorbackend.model.Vehicle;
-import com.municipality.garbagecollectorbackend.model.Incident;
+import com.municipality.garbagecollectorbackend.model.*;
 import com.municipality.garbagecollectorbackend.service.BinService;
 import com.municipality.garbagecollectorbackend.service.DepartmentService;
 import com.municipality.garbagecollectorbackend.service.EmployeeService;
@@ -80,10 +75,9 @@ public class DepartmentRoutingService {
 
         // ACTIVE OVERFILL incidents (bin != null)
         List<Incident> activeOverfillIncidents = activeIncidents.stream()
-                .filter(i -> "OVERFILL".equalsIgnoreCase(i.getType())
+                .filter(i -> i.getType() == IncidentType.OVERFILL
                         && i.getBin() != null)
                 .toList();
-
         // IDs of bins that have an OVERFILL incident
         Set<String> overfillBinIds = activeOverfillIncidents.stream()
                 .map(i -> i.getBin().getId())

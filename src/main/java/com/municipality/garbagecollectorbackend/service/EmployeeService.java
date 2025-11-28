@@ -1,22 +1,23 @@
 package com.municipality.garbagecollectorbackend.service;
 
-import com.municipality.garbagecollectorbackend.model.Bin;
 import com.municipality.garbagecollectorbackend.model.Department;
 import com.municipality.garbagecollectorbackend.model.Employee;
+import com.municipality.garbagecollectorbackend.model.EmployeeStatus;
 import com.municipality.garbagecollectorbackend.repository.DepartmentRepository;
 import com.municipality.garbagecollectorbackend.repository.EmployeeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 public class EmployeeService {
 
     @Autowired
     public EmployeeRepository employeeRepository;
+
     @Autowired
     public DepartmentRepository departmentRepository;
 
@@ -28,11 +29,104 @@ public class EmployeeService {
         return employeeRepository.findById(id);
     }
 
+    // ✅ UPDATED: Filter by status as well
     public List<Employee> getAvailableEmployees() {
         return employeeRepository.findAll()
                 .stream()
-                .filter(Employee::getAvailable)
-                .toList();
+                .filter(e -> e.getAvailable() &&
+                        (e.getStatus() == null || e.getStatus() == EmployeeStatus.AVAILABLE))
+                .collect(Collectors.toList());
+    }
+
+    // ✅ NEW: Get available employees by department
+    public List<Employee> getAvailableEmployeesByDepartment(String departmentId) {
+        return employeeRepository.findAll()
+                .stream()
+                .filter(e -> e.getDepartment() != null &&
+                        e.getDepartment().getId().equals(departmentId) &&
+                        e.getAvailable() &&
+                        (e.getStatus() == null || e.getStatus() == EmployeeStatus.AVAILABLE))
+                .collect(Collectors.toList());
+    }
+
+    // ✅ NEW: Assign employees to vehicle
+    public boolean assignEmployeesToVehicle(String vehicleId, List<String> employeeIds) {
+        if (employeeIds.size() != 2) {
+            throw new RuntimeException("Exactly 2 employees must be assigned to a vehicle");
+        }
+
+        List<Employee> employees = employeeRepository.findAllById(employeeIds);
+
+        if (employees.size() != 2) {
+            throw new RuntimeException("Could not find all employees");
+        }
+
+        // Check if all employees are available
+        for (Employee emp : employees) {
+            if (!emp.canBeAssigned()) {
+                throw new RuntimeException("Employee " + emp.getFullName() + " is not available");
+            }
+        }
+
+        // Assign employees
+        for (Employee emp : employees) {
+            emp.setStatus(EmployeeStatus.ASSIGNED);
+            emp.setAssignedVehicleId(vehicleId);
+            employeeRepository.save(emp);
+        }
+
+        System.out.println("✅ Assigned 2 employees to vehicle " + vehicleId);
+        return true;
+    }
+
+    // ✅ NEW: Update employee status when vehicle starts route
+    public void markEmployeesInRoute(String vehicleId) {
+        List<Employee> employees = employeeRepository.findAll()
+                .stream()
+                .filter(e -> vehicleId.equals(e.getAssignedVehicleId()))
+                .collect(Collectors.toList());
+
+        for (Employee emp : employees) {
+            emp.setStatus(EmployeeStatus.IN_ROUTE);
+            employeeRepository.save(emp);
+        }
+
+        System.out.println("🚛 " + employees.size() + " employees marked IN_ROUTE for vehicle " + vehicleId);
+    }
+
+    // ✅ NEW: Release employees when vehicle completes route
+    public void releaseEmployeesFromVehicle(String vehicleId) {
+        List<Employee> employees = employeeRepository.findAll()
+                .stream()
+                .filter(e -> vehicleId.equals(e.getAssignedVehicleId()))
+                .collect(Collectors.toList());
+
+        for (Employee emp : employees) {
+            emp.setStatus(EmployeeStatus.AVAILABLE);
+            emp.setAssignedVehicleId(null);
+            employeeRepository.save(emp);
+        }
+
+        System.out.println("✅ Released " + employees.size() + " employees from vehicle " + vehicleId);
+    }
+
+    // ✅ NEW: Get employees assigned to a vehicle
+    public List<Employee> getEmployeesByVehicle(String vehicleId) {
+        return employeeRepository.findAll()
+                .stream()
+                .filter(e -> vehicleId.equals(e.getAssignedVehicleId()))
+                .collect(Collectors.toList());
+    }
+
+    // ✅ NEW: Check if vehicle has required employees
+    public boolean vehicleHasRequiredEmployees(String vehicleId) {
+        long count = employeeRepository.findAll()
+                .stream()
+                .filter(e -> vehicleId.equals(e.getAssignedVehicleId()) &&
+                        e.getStatus() == EmployeeStatus.ASSIGNED)
+                .count();
+
+        return count == 2;
     }
 
     public Employee saveEmployee(Employee employee) {
@@ -41,6 +135,12 @@ public class EmployeeService {
                     .orElseThrow(() -> new RuntimeException("Department not found"));
             employee.setDepartment(dep);
         }
+
+        // ✅ Initialize status if null
+        if (employee.getStatus() == null) {
+            employee.setStatus(EmployeeStatus.AVAILABLE);
+        }
+
         return employeeRepository.save(employee);
     }
 
@@ -64,5 +164,4 @@ public class EmployeeService {
     public void deleteEmployee(String id) {
         employeeRepository.deleteById(id);
     }
-
 }

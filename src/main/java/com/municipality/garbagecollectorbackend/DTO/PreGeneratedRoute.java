@@ -1,6 +1,6 @@
 package com.municipality.garbagecollectorbackend.DTO;
 
-import com.municipality.garbagecollectorbackend.model.RouteBin;
+import com.municipality.garbagecollectorbackend.model.RoutePoint;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -22,10 +22,11 @@ public class PreGeneratedRoute {
     // ✅ NEW: Assignment tracking
     private String assignedVehicleId;  // null = available, otherwise = claimed
     private LocalDateTime assignedAt;
+    private List<RoutePoint> polyline;
 
     // ✅ Constructor for initial generation (without assignment)
     public PreGeneratedRoute(String routeId, String departmentId, List<RouteBin> routeBins,
-                             LocalDateTime generatedAt, int binCount) {
+                             LocalDateTime generatedAt, int binCount, List<RoutePoint> polyline) {
         this.routeId = routeId;
         this.departmentId = departmentId;
         this.routeBins = routeBins;
@@ -33,6 +34,7 @@ public class PreGeneratedRoute {
         this.binCount = binCount;
         this.assignedVehicleId = null;  // Initially unassigned
         this.assignedAt = null;
+        this.polyline = polyline;
     }
 
     // ✅ Helper method for route age
@@ -60,5 +62,8 @@ public class PreGeneratedRoute {
     public void release() {
         this.assignedVehicleId = null;
         this.assignedAt = null;
+    }
+    public List<RoutePoint> getPolyline() {
+        return polyline;
     }
 }

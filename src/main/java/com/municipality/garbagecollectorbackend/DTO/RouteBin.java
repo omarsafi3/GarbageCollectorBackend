@@ -1,4 +1,4 @@
-package com.municipality.garbagecollectorbackend.model;
+package com.municipality.garbagecollectorbackend.DTO;
 
 public class RouteBin {
     private String id;

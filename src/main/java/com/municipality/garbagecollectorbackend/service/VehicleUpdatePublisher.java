@@ -2,10 +2,13 @@ package com.municipality.garbagecollectorbackend.service;
 import com.municipality.garbagecollectorbackend.DTO.RouteCompletionEvent;
 import com.municipality.garbagecollectorbackend.DTO.RouteProgressUpdate;
 import com.municipality.garbagecollectorbackend.DTO.TruckPositionUpdate;
+import com.municipality.garbagecollectorbackend.routing.RouteResponse;
 import com.municipality.garbagecollectorbackend.model.Vehicle;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+
+import java.util.Map;
 
 @Service
 public class VehicleUpdatePublisher {
@@ -50,4 +53,17 @@ public class VehicleUpdatePublisher {
         System.out.println("✅ Sent route completion: " + event.getVehicleId() +
                 " -> " + event.getBinsCollected() + " bins collected");
     }
+    public void publishRouteUpdate(String vehicleId, RouteResponse newRoute) {
+        messagingTemplate.convertAndSend("/topic/route-update", Map.of(
+                "vehicleId", vehicleId,
+                "polyline", newRoute.getPolyline(),
+                "bins", newRoute.getBins(),
+                "totalDistance", newRoute.getTotalDistanceKm()
+        ));
+
+        System.out.println("🔄 Sent route update: " + vehicleId +
+                " -> " + newRoute.getBins().size() + " bins, " +
+                String.format("%.2f", newRoute.getTotalDistanceKm()) + " km");
+    }
+
 }

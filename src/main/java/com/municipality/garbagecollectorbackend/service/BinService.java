@@ -29,7 +29,9 @@ public class BinService {
     public void deleteBin(String id) {
         binRepository.deleteById(id);
     }
-
+    public List<Bin> getBinsByIds(List<String> binIds) {
+        return binRepository.findAllById(binIds);
+    }
     public Bin updateBin(String id, Bin updatedBin) {
         return binRepository.findById(id)
                 .map(existingBin -> {
