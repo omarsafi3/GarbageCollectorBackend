@@ -3,6 +3,7 @@ package com.municipality.garbagecollectorbackend.controller;
 import com.municipality.garbagecollectorbackend.model.User;
 import com.municipality.garbagecollectorbackend.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,28 +17,33 @@ public class UserController {
     private UserService userService;
 
     @GetMapping
-    public List<User> getAllUsers() {
-        return userService.getAllUsers();
+    public ResponseEntity<List<User>> getAllUsers() {
+        List<User> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<User> getUserById(@PathVariable String id) {
-        return ResponseEntity.ok(userService.getUserById(id));
+        User user = userService.getUserById(id);
+        return ResponseEntity.ok(user);
     }
 
     @PostMapping("/super-admin")
-    public User createSuperAdmin(@RequestBody User user) {
-        return userService.createSuperAdmin(user);
+    public ResponseEntity<User> createSuperAdmin(@RequestBody User user) {
+        User createdUser = userService.createSuperAdmin(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
     }
 
     @PostMapping("/admin/{departmentId}")
-    public User createAdmin(@PathVariable String departmentId, @RequestBody User user) {
-        return userService.createAdmin(user, departmentId);
+    public ResponseEntity<User> createAdmin(@PathVariable String departmentId, @RequestBody User user) {
+        User createdUser = userService.createAdmin(user, departmentId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<User> updateUser(@PathVariable String id, @RequestBody User updatedUser) {
-        return ResponseEntity.ok(userService.updateUser(id, updatedUser));
+        User user = userService.updateUser(id, updatedUser);
+        return ResponseEntity.ok(user);
     }
 
     @DeleteMapping("/{id}")

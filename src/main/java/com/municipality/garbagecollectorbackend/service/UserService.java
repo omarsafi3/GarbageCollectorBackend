@@ -4,7 +4,10 @@ import com.municipality.garbagecollectorbackend.model.Role;
 import com.municipality.garbagecollectorbackend.model.User;
 import com.municipality.garbagecollectorbackend.repository.DepartmentRepository;
 import com.municipality.garbagecollectorbackend.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.municipality.garbagecollectorbackend.util.CustomUserDetails;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -13,11 +16,17 @@ import java.util.Optional;
 @Service
 public class UserService {
 
-    @Autowired
-    public UserRepository userRepository;
+    private final UserRepository userRepository;
+    private final DepartmentRepository departmentRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    @Autowired
-    public DepartmentRepository departmentRepository;
+    public UserService(UserRepository userRepository,
+                       DepartmentRepository departmentRepository,
+                       PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.departmentRepository = departmentRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
 
     public List<User> getAllUsers() {
         return userRepository.findAll();
@@ -33,7 +42,8 @@ public class UserService {
             throw new RuntimeException("Username already exists");
         }
 
-        user.setRole(Role.SUPER_ADMIN);
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        user.setRole(User.Role.SUPER_ADMIN);
         user.setDepartmentId(null);
         return userRepository.save(user);
     }
@@ -46,7 +56,8 @@ public class UserService {
         departmentRepository.findById(departmentId)
                 .orElseThrow(() -> new RuntimeException("Department not found"));
 
-        user.setRole(Role.ADMIN);
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        user.setRole(User.Role.ADMIN);
         user.setDepartmentId(departmentId);
 
         return userRepository.save(user);
@@ -62,7 +73,9 @@ public class UserService {
         }
 
         existing.setUsername(updated.getUsername());
-        existing.setPassword(updated.getPassword());
+        if (updated.getPassword() != null && !updated.getPassword().isEmpty()) {
+            existing.setPassword(passwordEncoder.encode(updated.getPassword()));
+        }
         existing.setRole(updated.getRole());
         existing.setDepartmentId(updated.getDepartmentId());
 
@@ -73,4 +86,17 @@ public class UserService {
         userRepository.deleteById(id);
     }
 
+    public Optional<User> findByUsername(String username) {
+        return userRepository.findByUsername(username);
+    }
+
+    public PasswordEncoder getPasswordEncoder() {
+        return passwordEncoder;
+    }
+
+    public UserDetails loadUserByUsername(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+        return new CustomUserDetails(user);
+    }
 }
