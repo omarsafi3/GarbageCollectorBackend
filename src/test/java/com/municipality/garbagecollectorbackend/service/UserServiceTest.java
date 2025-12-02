@@ -41,8 +41,8 @@ class UserServiceTest {
     @Test
     void testGetAllUsers() {
         List<User> users = List.of(
-                new User("1", "u1", "p1", Role.ADMIN, "d1"),
-                new User("2", "u2", "p2", Role.SUPER_ADMIN, null)
+                new User("1", "u1", "p1", User.Role.ADMIN, "d1"),
+                new User("2", "u2", "p2", User.Role.SUPER_ADMIN, null)
         );
         when(userRepository.findAll()).thenReturn(users);
 
@@ -54,7 +54,7 @@ class UserServiceTest {
 
     @Test
     void testGetUserById() {
-        User user = new User("10", "admin", "pass", Role.ADMIN, "d1");
+        User user = new User("10", "admin", "pass", User.Role.ADMIN, "d1");
         when(userRepository.findById("10")).thenReturn(Optional.of(user));
 
         User result = userService.getUserById("10");
@@ -75,7 +75,7 @@ class UserServiceTest {
 
     @Test
     void testCreateSuperAdmin_success() {
-        User user = new User(null, "super", "pass", Role.ADMIN, "d1");
+        User user = new User(null, "super", "pass", User.Role.ADMIN, "d1");
         when(userRepository.findByUsername("super")).thenReturn(Optional.empty());
         when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
         when(passwordEncoder.encode(anyString())).thenAnswer(i -> i.getArgument(0));
@@ -89,7 +89,7 @@ class UserServiceTest {
 
     @Test
     void testCreateSuperAdmin_duplicateUsername() {
-        User user = new User(null, "super", "pass", Role.ADMIN, "d1");
+        User user = new User(null, "super", "pass", User.Role.ADMIN, "d1");
         when(userRepository.findByUsername("super")).thenReturn(Optional.of(user));
 
         RuntimeException ex = assertThrows(RuntimeException.class,
@@ -101,7 +101,7 @@ class UserServiceTest {
 
     @Test
     void testCreateAdmin_success() {
-        User user = new User(null, "admin", "pass", Role.SUPER_ADMIN, null);
+        User user = new User(null, "admin", "pass", User.Role.SUPER_ADMIN, null);
         Department dep = new Department("d10", "Route 1", 10.0, 20.0);
 
         when(userRepository.findByUsername("admin")).thenReturn(Optional.empty());
@@ -118,7 +118,7 @@ class UserServiceTest {
 
     @Test
     void testCreateAdmin_duplicateUsername() {
-        User user = new User(null, "admin", "pass", Role.SUPER_ADMIN, null);
+        User user = new User(null, "admin", "pass", User.Role.SUPER_ADMIN, null);
 
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
 
@@ -131,7 +131,7 @@ class UserServiceTest {
 
     @Test
     void testCreateAdmin_departmentNotFound() {
-        User user = new User(null, "admin", "pass", Role.SUPER_ADMIN, null);
+        User user = new User(null, "admin", "pass", User.Role.SUPER_ADMIN, null);
         when(userRepository.findByUsername("admin")).thenReturn(Optional.empty());
         when(departmentRepository.findById("d404")).thenReturn(Optional.empty());
 
@@ -144,8 +144,8 @@ class UserServiceTest {
 
     @Test
     void testUpdateUser_success() {
-        User existing = new User("1", "old", "oldpass", Role.ADMIN, "d1");
-        User updated = new User(null, "new", "newpass", Role.SUPER_ADMIN, null);
+        User existing = new User("1", "old", "oldpass", User.Role.ADMIN, "d1");
+        User updated = new User(null, "new", "newpass", User.Role.SUPER_ADMIN, null);
 
         when(userRepository.findById("1")).thenReturn(Optional.of(existing));
         when(userRepository.findByUsername("new")).thenReturn(Optional.empty());
@@ -163,9 +163,9 @@ class UserServiceTest {
 
     @Test
     void testUpdateUser_duplicateUsername() {
-        User existing = new User("1", "old", "oldpass", Role.ADMIN, "d1");
-        User updated = new User(null, "dup", "newpass", Role.SUPER_ADMIN, null);
-        User other = new User("2", "dup", "pass", Role.ADMIN, "d1");
+        User existing = new User("1", "old", "oldpass", User.Role.ADMIN, "d1");
+        User updated = new User(null, "dup", "newpass", User.Role.SUPER_ADMIN, null);
+        User other = new User("2", "dup", "pass", User.Role.ADMIN, "d1");
 
         when(userRepository.findById("1")).thenReturn(Optional.of(existing));
         when(userRepository.findByUsername("dup")).thenReturn(Optional.of(other));
@@ -195,7 +195,7 @@ class UserServiceTest {
 
     @Test
     void testLoadUserByUsername_success() {
-        User user = new User("1", "john", "pass", Role.ADMIN, "d1");
+        User user = new User("1", "john", "pass", User.Role.ADMIN, "d1");
         when(userRepository.findByUsername("john")).thenReturn(Optional.of(user));
 
         UserDetails userDetails = userService.loadUserByUsername("john");

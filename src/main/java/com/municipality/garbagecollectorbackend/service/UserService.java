@@ -43,7 +43,7 @@ public class UserService {
         }
 
         user.setPassword(passwordEncoder.encode(user.getPassword()));
-        user.setRole(Role.SUPER_ADMIN);
+        user.setRole(User.Role.SUPER_ADMIN);
         user.setDepartmentId(null);
         return userRepository.save(user);
     }
@@ -57,7 +57,7 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("Department not found"));
 
         user.setPassword(passwordEncoder.encode(user.getPassword()));
-        user.setRole(Role.ADMIN);
+        user.setRole(User.Role.ADMIN);
         user.setDepartmentId(departmentId);
 
         return userRepository.save(user);
