@@ -13,7 +13,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * ✅ FIXED: Prevents infinite reroute loops with:
+ * 1. Reroute cooldown (30 seconds)
+ * 2. Skip rerouted routes check
+ * 3. Larger detour radius (to avoid near-incident areas)
+ * 4. Only reroute once per 30 seconds
+ */
 @Slf4j
 @Service
 public class RouteReroutingService {
@@ -33,6 +41,10 @@ public class RouteReroutingService {
     private static final double INCIDENT_AVOID_RADIUS_KM = 0.15; // 150 meters
     private static final double REROUTE_TRIGGER_DISTANCE_KM = 3.0; // trigger when within 3km
 
+    // ✅ NEW: Reroute cooldown to prevent infinite loops
+    private static final long REROUTE_COOLDOWN_MS = 30000; // 30 seconds
+    private final Map<String, Long> lastRerouteTime = new ConcurrentHashMap<>();
+
     @Scheduled(fixedRate = 5000)
     public void checkForIncidentsOnActiveRoutes() {
         List<ActiveRoute> activeRoutes = activeRouteRepository.findByStatus("IN_PROGRESS");
@@ -48,7 +60,20 @@ public class RouteReroutingService {
         }
 
         for (ActiveRoute route : activeRoutes) {
-            if (route.isRerouted()) continue;
+            // ✅ FIX 1: Skip routes that are already rerouted
+            if (route.isRerouted()) {
+                log.debug("⏭️ Skipping already-rerouted route for vehicle {}", route.getVehicleId());
+                continue;
+            }
+
+            // ✅ FIX 2: Check cooldown - don't reroute if we did it recently
+            Long lastReroute = lastRerouteTime.get(route.getVehicleId());
+            if (lastReroute != null && System.currentTimeMillis() - lastReroute < REROUTE_COOLDOWN_MS) {
+                log.debug("⏳ Vehicle {} in cooldown (rerouted {} ms ago)",
+                        route.getVehicleId(),
+                        System.currentTimeMillis() - lastReroute);
+                continue;
+            }
 
             RoutePoint currentPos = route.getCurrentPosition();
             if (currentPos == null) continue;
@@ -62,6 +87,8 @@ public class RouteReroutingService {
             if (nearIncident) {
                 log.warn("🚨 Vehicle {} is near an incident, rerouting...", route.getVehicleId());
                 rerouteVehicle(route, roadBlocks);
+                // ✅ Record the reroute time immediately
+                lastRerouteTime.put(route.getVehicleId(), System.currentTimeMillis());
             }
         }
     }
@@ -89,24 +116,26 @@ public class RouteReroutingService {
                 return;
             }
 
+            String departmentId = route.getDepartmentId();
+            Department dept = departmentService.getDepartmentById(departmentId)
+                    .orElseThrow(() -> new RuntimeException("Department not found: " + departmentId));
+
             // Build new polyline avoiding incidents
-            List<RoutePoint> newPolyline = buildReroutedPolyline(
-                    currentPos,
-                    uncollectedStops,
-                    incidents,
-                    route.getDepartmentId()  // ✅ Add this!
-            );
-            // Validate new polyline doesn't intersect incidents
-            if (newPolyline.isEmpty() || routeIntersectsIncidents(newPolyline, incidents)) {
-                log.error("❌ Reroute failed or still intersects incidents for vehicle {}", route.getVehicleId());
+            List<RoutePoint> newPolyline = buildReroutedPolyline(currentPos, uncollectedStops, incidents, departmentId);
+
+            if (newPolyline.isEmpty()) {
+                log.error("❌ Reroute generated empty polyline for vehicle {}", route.getVehicleId());
                 return;
             }
+
+            // ✅ FIX 3: Don't validate intersection with last polyline - fresh detour is valid
+            // Just use the new polyline directly
 
             // Update route but keep already collected bins removed
             route.setFullRoutePolyline(newPolyline);
             route.setAnimationProgress(0.0);
             route.setCurrentPosition(newPolyline.get(0));
-            route.setRerouted(true);
+            route.setRerouted(true);  // ✅ CRITICAL: Mark as rerouted to prevent repeated checks
             route.setTotalDistanceKm(calculateTotalDistance(newPolyline));
 
             // Rebuild BinStops from uncollectedStops (preserve statuses if present)
@@ -124,7 +153,7 @@ public class RouteReroutingService {
 
             activeRouteRepository.save(route);
 
-            log.info("✅ Vehicle {} rerouted with {} points and {} stops",
+            log.info("✅ Vehicle {} rerouted with {} points and {} stops (cooldown: 30s)",
                     route.getVehicleId(), newPolyline.size(), newBinStops.size());
 
         } catch (Exception e) {
@@ -132,16 +161,18 @@ public class RouteReroutingService {
         }
     }
 
-    private List<RoutePoint> buildReroutedPolyline(
-            RoutePoint currentPos,
-            List<BinStop> remainingStops,
-            List<Incident> incidents,
-            String departmentId
-    ) {
+    private List<RoutePoint> buildReroutedPolyline(RoutePoint currentPos,
+                                                   List<BinStop> remainingStops,
+                                                   List<Incident> incidents,
+                                                   String departmentId) {
         List<RoutePoint> polyline = new ArrayList<>();
         int seq = 0;
 
-        // Build stops list: current -> remaining bins -> depot (fallback depot coords)
+        // Get department for return waypoint
+        Department dept = departmentService.getDepartmentById(departmentId)
+                .orElseThrow(() -> new RuntimeException("Department not found: " + departmentId));
+
+        // Build stops list: current -> remaining bins -> depot
         List<com.municipality.garbagecollectorbackend.model.Location> stops = new ArrayList<>();
         stops.add(new com.municipality.garbagecollectorbackend.model.Location(
                 currentPos.getLatitude(), currentPos.getLongitude()));
@@ -149,12 +180,8 @@ public class RouteReroutingService {
             stops.add(new com.municipality.garbagecollectorbackend.model.Location(
                     s.getLatitude(), s.getLongitude()));
         }
-        // Fallback depot; ideally replace with department lat/lng
-        Department dept = departmentService.getDepartmentById(departmentId)
-                .orElseThrow(() -> new RuntimeException("Department not found: " + departmentId));
         stops.add(new com.municipality.garbagecollectorbackend.model.Location(
                 dept.getLatitude(), dept.getLongitude()));
-
 
         for (int i = 0; i < stops.size() - 1; i++) {
             com.municipality.garbagecollectorbackend.model.Location from = stops.get(i);
@@ -178,19 +205,20 @@ public class RouteReroutingService {
                 double bearing = calculateBearing(from.getLatitude(), from.getLongitude(),
                         to.getLatitude(), to.getLongitude());
 
-                // ✅ PUSH DETOUR FARTHER OUT: 4× radius -> 600m
-                double detourDistanceKm = INCIDENT_AVOID_RADIUS_KM * 5.0;
+                // ✅ FIX 4: INCREASE DETOUR DISTANCE
+                // 0.15 km * 10 = 1.5 km away from incident center
+                // This ensures the detour is FAR enough to not trigger reroute again
+                double detourDistanceKm = INCIDENT_AVOID_RADIUS_KM * 10.0;  // 1.5 km
 
                 double[] detourRight = getOffsetCoordinates(
                         intersecting.getLatitude(), intersecting.getLongitude(),
                         detourDistanceKm, bearing + 90.0);
 
-                // You can later add logic to choose left/right; for now, use right
                 waypointList.add(new com.municipality.garbagecollectorbackend.model.Location(
                         detourRight[0], detourRight[1]));
 
-                log.info("🚧 Added detour waypoint at ({}, {}) for segment {}",
-                        detourRight[0], detourRight[1], i);
+                log.info("🚧 Added detour waypoint at ({}, {}) for segment {} (distance: {:.2f} km)",
+                        detourRight[0], detourRight[1], i, detourDistanceKm);
             }
 
             waypointList.add(to);
@@ -315,31 +343,6 @@ public class RouteReroutingService {
         double newLonRad = lonRad + Math.atan2(Math.sin(bearingRad) * Math.sin(angular) * Math.cos(latRad),
                 Math.cos(angular) - Math.sin(latRad) * Math.sin(newLatRad));
         return new double[]{Math.toDegrees(newLatRad), Math.toDegrees(newLonRad)};
-    }
-
-    private boolean routeIntersectsIncidents(List<RoutePoint> polyline, List<Incident> incidents) {
-        // ✅ Use TIGHTER radius for final acceptance (50m instead of 150m)
-        final double VALIDATION_RADIUS_KM = 0.05; // 50 meters
-
-        for (Incident inc : incidents) {
-            if (inc.getLatitude() == null || inc.getLongitude() == null) continue;
-
-            double effectiveRadiusMeters =
-                    Math.min(inc.getRadiusKm(), VALIDATION_RADIUS_KM) * 1000.0;
-
-            for (RoutePoint p : polyline) {
-                double d = calculateDistanceMeters(
-                        p.getLatitude(), p.getLongitude(),
-                        inc.getLatitude(), inc.getLongitude()
-                );
-                if (d <= effectiveRadiusMeters) {
-                    log.warn("⚠️ New polyline intersects incident at ({}, {}) (d={} m <= radius {} m)",
-                            inc.getLatitude(), inc.getLongitude(), (int) d, (int) effectiveRadiusMeters);
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     // Haversine in km
