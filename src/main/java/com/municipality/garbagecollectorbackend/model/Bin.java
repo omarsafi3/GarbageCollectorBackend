@@ -22,6 +22,6 @@ public class Bin {
     private String status;
     private LocalDateTime lastEmptied;
     private LocalDateTime lastUpdated;
-
+    private Department department;
 
 }

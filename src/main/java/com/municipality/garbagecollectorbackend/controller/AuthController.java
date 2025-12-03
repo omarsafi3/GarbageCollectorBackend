@@ -1,74 +1,59 @@
 package com.municipality.garbagecollectorbackend.controller;
 
-import com.municipality.garbagecollectorbackend.model.Role;
 import com.municipality.garbagecollectorbackend.model.User;
-import com.municipality.garbagecollectorbackend.service.UserService;
-import com.municipality.garbagecollectorbackend.util.JwtUtil;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.municipality.garbagecollectorbackend.service.AuthenticationService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/auth")
+@RequiredArgsConstructor
+@Tag(name = "Authentication", description = "User authentication and registration endpoints")
 public class AuthController {
 
-    @Autowired
-    private UserService userService;
+    private final AuthenticationService authenticationService;
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
+    @Operation(summary = "Login", description = "Authenticate a user and return a JWT token")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Login successful",
+            content = @Content(schema = @Schema(implementation = Map.class))),
+        @ApiResponse(responseCode = "401", description = "Invalid credentials")
+    })
     @PostMapping("/login")
     public ResponseEntity<Map<String, String>> login(@RequestBody User loginRequest) {
-        User user = userService.findByUsername(loginRequest.getUsername())
-                .orElseThrow(() -> new RuntimeException("Invalid username"));
-
-        if (!userService.getPasswordEncoder().matches(loginRequest.getPassword(), user.getPassword())) {
-            throw new RuntimeException("Invalid password");
+        try {
+            Map<String, String> response = authenticationService.authenticate(
+                    loginRequest.getUsername(),
+                    loginRequest.getPassword()
+            );
+            return ResponseEntity.ok(response);
+        } catch (BadCredentialsException e) {
+            throw new RuntimeException(e.getMessage());
         }
-
-        String token = jwtUtil.generateToken(user);
-
-        Map<String, String> response = new HashMap<>();
-        response.put("token", token);
-
-        return ResponseEntity.ok(response);
     }
 
+    @Operation(summary = "Sign up", description = "Register a new user (SUPER_ADMIN or ADMIN)")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "User created successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request or username exists")
+    })
     @PostMapping("/signup")
     public ResponseEntity<?> signup(@RequestBody User signupRequest) {
-
-        // Check if username exists
-        if (userService.findByUsername(signupRequest.getUsername()).isPresent()) {
-            return ResponseEntity.badRequest().body("Username already exists");
+        try {
+            Map<String, Object> response = authenticationService.signup(signupRequest);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
         }
-
-        User created;
-
-        // Determine whether to create SUPER_ADMIN or ADMIN
-        if (signupRequest.getRole() == User.Role.SUPER_ADMIN) {
-            created = userService.createSuperAdmin(signupRequest);
-        } else if (signupRequest.getRole() == User.Role.ADMIN) {
-            if (signupRequest.getDepartmentId() == null) {
-                return ResponseEntity.badRequest().body("departmentId is required for ADMIN role");
-            }
-            created = userService.createAdmin(signupRequest, signupRequest.getDepartmentId());
-        } else {
-            return ResponseEntity.badRequest().body("Invalid role");
-        }
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "Signup successful");
-        response.put("userId", created.getId());
-        response.put("username", created.getUsername());
-        response.put("role", created.getRole());
-        response.put("departmentId", created.getDepartmentId());
-
-        return ResponseEntity.ok(response);
     }
-
-
 }

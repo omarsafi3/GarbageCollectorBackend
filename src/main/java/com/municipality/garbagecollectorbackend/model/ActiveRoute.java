@@ -6,13 +6,17 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
+
 @Data
 @Document(collection = "active_routes")
 public class ActiveRoute {
     @Id
     private String id;
     private boolean rerouted = false;
-    private boolean blockedByIncident = false; // ✅ NEW: Track if vehicle is blocked by incident
+    private boolean blockedByIncident = false;
 
     private String vehicleId;
     private String departmentId;
@@ -36,6 +40,72 @@ public class ActiveRoute {
     private double totalDistanceKm;
     private int totalBins;
     private int binsCollected;
+    
+    // ✅ NEW: Track all incidents that have been avoided during this route to prevent loops
+    private Set<String> avoidedIncidentIds = new HashSet<>();
+    
+    // ✅ NEW: Track reroute attempts to detect infinite loops
+    private int rerouteAttempts = 0;
+    private static final int MAX_REROUTE_ATTEMPTS = 5;
+    
+    // ✅ NEW: Track last reroute positions to detect loops
+    private List<RerouteHistoryEntry> rerouteHistory = new ArrayList<>();
+    
+    /**
+     * Add an incident ID to the avoided list
+     */
+    public void addAvoidedIncident(String incidentId) {
+        if (avoidedIncidentIds == null) {
+            avoidedIncidentIds = new HashSet<>();
+        }
+        avoidedIncidentIds.add(incidentId);
+    }
+    
+    /**
+     * Check if we've exceeded max reroute attempts
+     */
+    public boolean hasExceededRerouteLimit() {
+        return rerouteAttempts >= MAX_REROUTE_ATTEMPTS;
+    }
+    
+    /**
+     * Record a reroute attempt
+     */
+    public void recordRerouteAttempt(double lat, double lng, String incidentId) {
+        rerouteAttempts++;
+        if (rerouteHistory == null) {
+            rerouteHistory = new ArrayList<>();
+        }
+        rerouteHistory.add(new RerouteHistoryEntry(lat, lng, incidentId, LocalDateTime.now()));
+    }
+    
+    /**
+     * Check if vehicle is in a reroute loop (keeps hitting same incidents)
+     */
+    public boolean isInRerouteLoop() {
+        if (rerouteHistory == null || rerouteHistory.size() < 3) {
+            return false;
+        }
+        // Check if the same incident appears multiple times in recent history
+        List<RerouteHistoryEntry> recent = rerouteHistory.subList(
+                Math.max(0, rerouteHistory.size() - 4), 
+                rerouteHistory.size()
+        );
+        Set<String> recentIncidents = new HashSet<>();
+        for (RerouteHistoryEntry entry : recent) {
+            if (entry.getIncidentId() != null && !recentIncidents.add(entry.getIncidentId())) {
+                return true; // Same incident encountered twice in recent history = loop
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Get all avoided incident IDs
+     */
+    public Set<String> getAvoidedIncidentIds() {
+        return avoidedIncidentIds != null ? avoidedIncidentIds : new HashSet<>();
+    }
     public List<RoutePoint> getRemainingRoutePoints() {
         if (fullRoutePolyline == null || fullRoutePolyline.isEmpty()) {
             return Collections.emptyList();

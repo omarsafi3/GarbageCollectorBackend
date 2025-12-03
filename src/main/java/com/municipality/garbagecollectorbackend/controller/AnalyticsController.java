@@ -2,6 +2,9 @@ package com.municipality.garbagecollectorbackend.controller;
 
 import com.municipality.garbagecollectorbackend.model.RouteHistory;
 import com.municipality.garbagecollectorbackend.service.AnalyticsService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -11,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+@Tag(name = "Analytics", description = "Analytics and reporting endpoints")
 @RestController
 @RequestMapping("/api/analytics")
 public class AnalyticsController {
@@ -18,11 +22,8 @@ public class AnalyticsController {
     @Autowired
     private AnalyticsService analyticsService;
 
-    /**
-     * Get department analytics summary with date range
-     *
-     * Example: GET /api/analytics/department/6920266d0b737026e2496c54/summary?startDate=2025-11-01T00:00:00&endDate=2025-11-30T23:59:59
-     */
+    @Operation(summary = "Get department analytics summary", description = "Retrieves analytics summary for a department within a date range")
+    @ApiResponse(responseCode = "200", description = "Department analytics summary")
     @GetMapping("/department/{departmentId}/summary")
     public ResponseEntity<Map<String, Object>> getDepartmentAnalytics(
             @PathVariable String departmentId,
@@ -42,11 +43,8 @@ public class AnalyticsController {
         return ResponseEntity.ok(analytics);
     }
 
-    /**
-     * Get recent routes for a department
-     *
-     * Example: GET /api/analytics/department/6920266d0b737026e2496c54/recent?limit=10
-     */
+    @Operation(summary = "Get recent routes", description = "Retrieves recent routes for a department with optional limit")
+    @ApiResponse(responseCode = "200", description = "List of recent routes")
     @GetMapping("/department/{departmentId}/recent")
     public ResponseEntity<List<RouteHistory>> getRecentRoutes(
             @PathVariable String departmentId,
@@ -56,11 +54,8 @@ public class AnalyticsController {
         return ResponseEntity.ok(routes);
     }
 
-    /**
-     * Get vehicle performance statistics
-     *
-     * Example: GET /api/analytics/vehicle/692029d616c4ef2ac1b745a5/performance
-     */
+    @Operation(summary = "Get vehicle performance", description = "Retrieves performance statistics for a specific vehicle")
+    @ApiResponse(responseCode = "200", description = "Vehicle performance statistics")
     @GetMapping("/vehicle/{vehicleId}/performance")
     public ResponseEntity<Map<String, Object>> getVehiclePerformance(
             @PathVariable String vehicleId
@@ -69,11 +64,8 @@ public class AnalyticsController {
         return ResponseEntity.ok(performance);
     }
 
-    /**
-     * Get all route history for a department (with optional date filter)
-     *
-     * Example: GET /api/analytics/department/6920266d0b737026e2496c54/routes?startDate=2025-11-01T00:00:00
-     */
+    @Operation(summary = "Get department routes", description = "Retrieves all route history for a department with optional date filter")
+    @ApiResponse(responseCode = "200", description = "List of routes")
     @GetMapping("/department/{departmentId}/routes")
     public ResponseEntity<List<RouteHistory>> getDepartmentRoutes(
             @PathVariable String departmentId,
@@ -102,11 +94,8 @@ public class AnalyticsController {
         return ResponseEntity.ok(filteredRoutes);
     }
 
-    /**
-     * Get CO2 emissions trend (daily aggregation)
-     *
-     * Example: GET /api/analytics/department/6920266d0b737026e2496c54/co2-trend?days=7
-     */
+    @Operation(summary = "Get CO2 emissions trend", description = "Retrieves daily CO2 emissions aggregation for a department")
+    @ApiResponse(responseCode = "200", description = "CO2 emissions trend data")
     @GetMapping("/department/{departmentId}/co2-trend")
     public ResponseEntity<Map<String, Object>> getCO2Trend(
             @PathVariable String departmentId,
@@ -125,11 +114,8 @@ public class AnalyticsController {
         ));
     }
 
-    /**
-     * Get cost summary
-     *
-     * Example: GET /api/analytics/department/6920266d0b737026e2496c54/cost-summary?days=30
-     */
+    @Operation(summary = "Get cost summary", description = "Retrieves cost summary for a department over a period")
+    @ApiResponse(responseCode = "200", description = "Cost summary data")
     @GetMapping("/department/{departmentId}/cost-summary")
     public ResponseEntity<Map<String, Object>> getCostSummary(
             @PathVariable String departmentId,
@@ -149,11 +135,8 @@ public class AnalyticsController {
         ));
     }
 
-    /**
-     * Get efficiency metrics
-     *
-     * Example: GET /api/analytics/department/6920266d0b737026e2496c54/efficiency
-     */
+    @Operation(summary = "Get efficiency metrics", description = "Retrieves efficiency metrics for a department")
+    @ApiResponse(responseCode = "200", description = "Efficiency metrics data")
     @GetMapping("/department/{departmentId}/efficiency")
     public ResponseEntity<Map<String, Object>> getEfficiencyMetrics(
             @PathVariable String departmentId,

@@ -1,20 +1,21 @@
 package com.municipality.garbagecollectorbackend.service;
-import com.municipality.garbagecollectorbackend.DTO.RouteCompletionEvent;
-import com.municipality.garbagecollectorbackend.DTO.RouteProgressUpdate;
-import com.municipality.garbagecollectorbackend.DTO.TruckPositionUpdate;
+
+import com.municipality.garbagecollectorbackend.dto.RouteCompletionEvent;
+import com.municipality.garbagecollectorbackend.dto.RouteProgressUpdate;
+import com.municipality.garbagecollectorbackend.dto.TruckPositionUpdate;
 import com.municipality.garbagecollectorbackend.routing.RouteResponse;
 import com.municipality.garbagecollectorbackend.model.Vehicle;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
 
 @Service
+@RequiredArgsConstructor
 public class VehicleUpdatePublisher {
 
-    @Autowired
-    private SimpMessagingTemplate messagingTemplate;
+    private final SimpMessagingTemplate messagingTemplate;
 
     /**
      * Publish vehicle fill level update

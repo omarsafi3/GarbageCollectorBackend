@@ -1,7 +1,6 @@
 package com.municipality.garbagecollectorbackend.service;
 
 import com.municipality.garbagecollectorbackend.model.Department;
-import com.municipality.garbagecollectorbackend.model.Role;
 import com.municipality.garbagecollectorbackend.model.User;
 import com.municipality.garbagecollectorbackend.repository.DepartmentRepository;
 import com.municipality.garbagecollectorbackend.repository.UserRepository;
@@ -82,7 +81,7 @@ class UserServiceTest {
 
         User saved = userService.createSuperAdmin(user);
 
-        assertEquals(Role.SUPER_ADMIN, saved.getRole());
+        assertEquals(User.Role.SUPER_ADMIN, saved.getRole());
         assertNull(saved.getDepartmentId());
         verify(userRepository).save(user);
     }
@@ -111,7 +110,7 @@ class UserServiceTest {
 
         User saved = userService.createAdmin(user, "d10");
 
-        assertEquals(Role.ADMIN, saved.getRole());
+        assertEquals(User.Role.ADMIN, saved.getRole());
         assertEquals("d10", saved.getDepartmentId());
         verify(userRepository).save(user);
     }
@@ -156,7 +155,7 @@ class UserServiceTest {
 
         assertEquals("new", result.getUsername());
         assertEquals("newpass", result.getPassword());
-        assertEquals(Role.SUPER_ADMIN, result.getRole());
+        assertEquals(User.Role.SUPER_ADMIN, result.getRole());
         assertNull(result.getDepartmentId());
         verify(userRepository).save(existing);
     }

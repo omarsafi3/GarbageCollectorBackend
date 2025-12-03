@@ -56,6 +56,29 @@ public class VehicleService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Get all available vehicles for a specific department
+     * @param departmentId the department ID
+     * @return list of available vehicles in the department
+     */
+    public List<Vehicle> getAvailableVehiclesByDepartment(String departmentId) {
+        return vehicleRepository.findAll().stream()
+                .filter(v -> v.getStatus() == Vehicle.VehicleStatus.AVAILABLE)
+                .filter(v -> v.getDepartment() != null && departmentId.equals(v.getDepartment().getId()))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Get all vehicles for a specific department
+     * @param departmentId the department ID
+     * @return list of vehicles in the department
+     */
+    public List<Vehicle> getVehiclesByDepartment(String departmentId) {
+        return vehicleRepository.findAll().stream()
+                .filter(v -> v.getDepartment() != null && departmentId.equals(v.getDepartment().getId()))
+                .collect(Collectors.toList());
+    }
+
     public Vehicle saveVehicle(Vehicle vehicle) {
         if (vehicle.getDepartment() != null) {
             String depId = vehicle.getDepartment().getId();

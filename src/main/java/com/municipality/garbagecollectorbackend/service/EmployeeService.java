@@ -49,15 +49,28 @@ public class EmployeeService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Get all employees for a specific department
+     * @param departmentId the department ID
+     * @return list of employees in the department
+     */
+    public List<Employee> getEmployeesByDepartment(String departmentId) {
+        return employeeRepository.findAll()
+                .stream()
+                .filter(e -> e.getDepartment() != null &&
+                        departmentId.equals(e.getDepartment().getId()))
+                .collect(Collectors.toList());
+    }
+
     // ✅ NEW: Assign employees to vehicle
     public boolean assignEmployeesToVehicle(String vehicleId, List<String> employeeIds) {
-        if (employeeIds.size() != 2) {
-            throw new RuntimeException("Exactly 2 employees must be assigned to a vehicle");
+        if (employeeIds.size() < 2) {
+            throw new RuntimeException("At least 2 employees must be assigned to a vehicle");
         }
 
         List<Employee> employees = employeeRepository.findAllById(employeeIds);
 
-        if (employees.size() != 2) {
+        if (employees.size() < 2) {
             throw new RuntimeException("Could not find all employees");
         }
 
@@ -68,6 +81,21 @@ public class EmployeeService {
             }
         }
 
+        // ✅ Validate: Must have at least 1 driver and 1 collector
+        long driverCount = employees.stream()
+                .filter(e -> e.getRole() == Employee.EmployeeRole.DRIVER)
+                .count();
+        long collectorCount = employees.stream()
+                .filter(e -> e.getRole() == Employee.EmployeeRole.COLLECTOR)
+                .count();
+
+        if (driverCount < 1) {
+            throw new RuntimeException("At least 1 DRIVER is required to dispatch a vehicle");
+        }
+        if (collectorCount < 1) {
+            throw new RuntimeException("At least 1 COLLECTOR is required to dispatch a vehicle");
+        }
+
         // Assign employees
         for (Employee emp : employees) {
             emp.setStatus(EmployeeStatus.ASSIGNED);
@@ -75,7 +103,7 @@ public class EmployeeService {
             employeeRepository.save(emp);
         }
 
-        System.out.println("✅ Assigned 2 employees to vehicle " + vehicleId);
+        System.out.println("✅ Assigned " + employees.size() + " employees (drivers: " + driverCount + ", collectors: " + collectorCount + ") to vehicle " + vehicleId);
         return true;
     }
 
@@ -118,15 +146,22 @@ public class EmployeeService {
                 .collect(Collectors.toList());
     }
 
-    // ✅ NEW: Check if vehicle has required employees
+    // ✅ NEW: Check if vehicle has required employees (at least 1 driver + 1 collector)
     public boolean vehicleHasRequiredEmployees(String vehicleId) {
-        long count = employeeRepository.findAll()
+        List<Employee> assigned = employeeRepository.findAll()
                 .stream()
                 .filter(e -> vehicleId.equals(e.getAssignedVehicleId()) &&
                         e.getStatus() == EmployeeStatus.ASSIGNED)
+                .collect(Collectors.toList());
+
+        long driverCount = assigned.stream()
+                .filter(e -> e.getRole() == Employee.EmployeeRole.DRIVER)
+                .count();
+        long collectorCount = assigned.stream()
+                .filter(e -> e.getRole() == Employee.EmployeeRole.COLLECTOR)
                 .count();
 
-        return count == 2;
+        return driverCount >= 1 && collectorCount >= 1;
     }
 
     public Employee saveEmployee(Employee employee) {
@@ -141,6 +176,16 @@ public class EmployeeService {
             employee.setStatus(EmployeeStatus.AVAILABLE);
         }
 
+        // ✅ Default role to COLLECTOR if not set
+        if (employee.getRole() == null) {
+            employee.setRole(Employee.EmployeeRole.COLLECTOR);
+        }
+
+        // ✅ Default available to true if not set
+        if (employee.getAvailable() == null) {
+            employee.setAvailable(true);
+        }
+
         return employeeRepository.save(employee);
     }
 
@@ -151,6 +196,7 @@ public class EmployeeService {
         existing.setFirstName(updatedEmployee.getFirstName());
         existing.setLastName(updatedEmployee.getLastName());
         existing.setAvailable(updatedEmployee.getAvailable());
+        existing.setRole(updatedEmployee.getRole());
 
         if (updatedEmployee.getDepartment() != null && updatedEmployee.getDepartment().getId() != null) {
             Department dep = departmentRepository.findById(updatedEmployee.getDepartment().getId())

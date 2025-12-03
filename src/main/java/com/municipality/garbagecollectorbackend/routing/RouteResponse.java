@@ -1,6 +1,6 @@
 package com.municipality.garbagecollectorbackend.routing;
 
-import com.municipality.garbagecollectorbackend.DTO.RouteBin;
+import com.municipality.garbagecollectorbackend.dto.RouteBin;
 import com.municipality.garbagecollectorbackend.model.RoutePoint;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -17,6 +17,4 @@ public class RouteResponse {
     private List<RoutePoint> polyline;
     private double totalDistanceKm;
     private int binCount;
-
-
 }

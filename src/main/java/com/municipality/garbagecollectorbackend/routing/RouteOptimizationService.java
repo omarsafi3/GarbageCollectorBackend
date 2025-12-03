@@ -14,9 +14,9 @@ import com.graphhopper.jsprit.core.problem.solution.route.activity.TourActivity;
 import com.graphhopper.jsprit.core.problem.vehicle.VehicleImpl;
 import com.graphhopper.jsprit.core.problem.vehicle.VehicleTypeImpl;
 import com.graphhopper.jsprit.core.util.Solutions;
-import com.municipality.garbagecollectorbackend.DTO.RouteBin;
-import com.municipality.garbagecollectorbackend.DTO.VehicleRouteResult;
-import com.municipality.garbagecollectorbackend.DTO.PreGeneratedRoute;
+import com.municipality.garbagecollectorbackend.dto.RouteBin;
+import com.municipality.garbagecollectorbackend.dto.VehicleRouteResult;
+import com.municipality.garbagecollectorbackend.dto.PreGeneratedRoute;
 import com.municipality.garbagecollectorbackend.model.*;
 import com.municipality.garbagecollectorbackend.service.BinService;
 import com.municipality.garbagecollectorbackend.service.DepartmentService;
@@ -162,24 +162,31 @@ public class RouteOptimizationService {
             double currentLat = startLat;
             double currentLng = startLng;
 
-            // 1) Build path through all bins with incident avoidance
+            // 1) Build path through all bins with FULL incident avoidance
             for (RouteBin bin : bins) {
                 List<String> waypoints = new ArrayList<>();
                 waypoints.add(String.format(Locale.US, "%.6f,%.6f", currentLng, currentLat));
 
-                // Check if this segment is blocked by incident
-                boolean blocked = false;
-                for (Incident incident : incidents) {
-                    if (incident.getLatitude() == null || incident.getLongitude() == null) continue;
-                    if (isIncidentBlockingSegment(currentLat, currentLng, bin.getLatitude(), bin.getLongitude(), incident)) {
-                        blocked = true;
-                        double bearing = calculateBearing(currentLat, currentLng, bin.getLatitude(), bin.getLongitude());
-                        double detourBearing = (bearing + 90) % 360;
-                        double safeDistanceKm = 0.15;
-                        double[] detour = getOffsetCoordinates(incident.getLatitude(), incident.getLongitude(), safeDistanceKm, detourBearing);
+                // ✅ IMPROVED: Find ALL incidents blocking this segment
+                List<Incident> blockingIncidents = findBlockingIncidents(
+                        currentLat, currentLng, bin.getLatitude(), bin.getLongitude(), incidents
+                );
+                
+                if (!blockingIncidents.isEmpty()) {
+                    log.info("🚧 Found {} incidents blocking path to bin {}", blockingIncidents.size(), bin.getId());
+                    
+                    // ✅ IMPROVED: Find the best detour that avoids ALL incidents
+                    List<double[]> detourWaypoints = findBestDetourWaypoints(
+                            currentLat, currentLng,
+                            bin.getLatitude(), bin.getLongitude(),
+                            blockingIncidents,
+                            incidents
+                    );
+                    
+                    // Add all detour waypoints
+                    for (double[] detour : detourWaypoints) {
                         waypoints.add(String.format(Locale.US, "%.6f,%.6f", detour[1], detour[0]));
-                        log.info("ðŸš§ Adding detour waypoint for blocked segment to bin {}", bin.getId());
-                        break;
+                        log.info("🚧 Adding detour waypoint at ({}, {})", detour[0], detour[1]);
                     }
                 }
 
@@ -222,19 +229,26 @@ public class RouteOptimizationService {
             List<String> returnWaypoints = new ArrayList<>();
             returnWaypoints.add(String.format(Locale.US, "%.6f,%.6f", currentLng, currentLat));
 
-            // Check if return path is blocked by incident
-            for (Incident incident : incidents) {
-                if (incident.getLatitude() == null || incident.getLongitude() == null) continue;
-                if (isIncidentBlockingSegment(currentLat, currentLng,
-                        department.getLatitude(), department.getLongitude(), incident)) {
-                    double bearing = calculateBearing(currentLat, currentLng,
-                            department.getLatitude(), department.getLongitude());
-                    double detourBearing = (bearing + 90) % 360;
-                    double safeDistanceKm = 0.15;
-                    double[] detour = getOffsetCoordinates(incident.getLatitude(), incident.getLongitude(), safeDistanceKm, detourBearing);
+            // ✅ IMPROVED: Find ALL incidents blocking return path
+            List<Incident> blockingReturnIncidents = findBlockingIncidents(
+                    currentLat, currentLng,
+                    department.getLatitude(), department.getLongitude(),
+                    incidents
+            );
+            
+            if (!blockingReturnIncidents.isEmpty()) {
+                log.info("🚧 Found {} incidents blocking return to department", blockingReturnIncidents.size());
+                
+                List<double[]> detourWaypoints = findBestDetourWaypoints(
+                        currentLat, currentLng,
+                        department.getLatitude(), department.getLongitude(),
+                        blockingReturnIncidents,
+                        incidents
+                );
+                
+                for (double[] detour : detourWaypoints) {
                     returnWaypoints.add(String.format(Locale.US, "%.6f,%.6f", detour[1], detour[0]));
-                    log.info("ðŸš§ Adding detour for return path to department");
-                    break;
+                    log.info("🚧 Adding return detour waypoint at ({}, {})", detour[0], detour[1]);
                 }
             }
 
@@ -288,6 +302,140 @@ public class RouteOptimizationService {
         double d = calculateDistanceMeters(incident.getLatitude(), incident.getLongitude(), closest[0], closest[1]);
         double effective = Math.min(incident.getRadiusKm(), 0.08) * 1000.0;
         return d <= effective;
+    }
+
+    /**
+     * Find the best detour waypoints that avoid ALL incidents on a segment
+     * Tries both left (+90°) and right (-90°) detours with increasing distances
+     */
+    private List<double[]> findBestDetourWaypoints(
+            double fromLat, double fromLng,
+            double toLat, double toLng,
+            List<Incident> blockingIncidents,
+            List<Incident> allIncidents
+    ) {
+        List<double[]> detourWaypoints = new ArrayList<>();
+        
+        // Try different safe distances and bearings - larger distances first for better avoidance
+        double[] safeDistances = {0.2, 0.35, 0.5, 0.75, 1.0, 1.5};
+        double baseBearing = calculateBearing(fromLat, fromLng, toLat, toLng);
+        // Try perpendicular first, then wider angles
+        double[] bearingOffsets = {90, -90, 75, -75, 105, -105, 60, -60, 120, -120, 45, -45, 135, -135};
+        
+        // Create a set of blocking incident IDs to exclude them when checking detour paths
+        Set<String> blockingIncidentIds = blockingIncidents.stream()
+                .map(Incident::getId)
+                .collect(Collectors.toSet());
+        
+        // Filter out blocking incidents from validation - we know we need to go around them
+        List<Incident> otherIncidents = allIncidents.stream()
+                .filter(i -> !blockingIncidentIds.contains(i.getId()))
+                .collect(Collectors.toList());
+        
+        for (double safeDistanceKm : safeDistances) {
+            for (double offset : bearingOffsets) {
+                List<double[]> candidateWaypoints = new ArrayList<>();
+                boolean validDetour = true;
+                
+                // Create detour points for each blocking incident
+                for (Incident incident : blockingIncidents) {
+                    double detourBearing = (baseBearing + offset) % 360;
+                    if (detourBearing < 0) detourBearing += 360;
+                    
+                    double[] detour = getOffsetCoordinates(
+                            incident.getLatitude(), 
+                            incident.getLongitude(), 
+                            safeDistanceKm, 
+                            detourBearing
+                    );
+                    candidateWaypoints.add(detour);
+                }
+                
+                // Verify this detour doesn't pass through any OTHER incidents (not the ones we're detouring around)
+                if (!candidateWaypoints.isEmpty()) {
+                    // Check path from start to first waypoint - only check against OTHER incidents
+                    double[] firstWp = candidateWaypoints.get(0);
+                    if (isPathBlockedByAnyIncident(fromLat, fromLng, firstWp[0], firstWp[1], otherIncidents)) {
+                        validDetour = false;
+                    }
+                    
+                    // Check path between waypoints
+                    for (int i = 0; i < candidateWaypoints.size() - 1 && validDetour; i++) {
+                        double[] wp1 = candidateWaypoints.get(i);
+                        double[] wp2 = candidateWaypoints.get(i + 1);
+                        if (isPathBlockedByAnyIncident(wp1[0], wp1[1], wp2[0], wp2[1], otherIncidents)) {
+                            validDetour = false;
+                        }
+                    }
+                    
+                    // Check path from last waypoint to destination - only check against OTHER incidents
+                    double[] lastWp = candidateWaypoints.get(candidateWaypoints.size() - 1);
+                    if (validDetour && isPathBlockedByAnyIncident(lastWp[0], lastWp[1], toLat, toLng, otherIncidents)) {
+                        validDetour = false;
+                    }
+                    
+                    // Also verify the detour point itself is far enough from the blocking incident
+                    if (validDetour) {
+                        for (int i = 0; i < candidateWaypoints.size(); i++) {
+                            double[] wp = candidateWaypoints.get(i);
+                            Incident blockingIncident = blockingIncidents.get(i);
+                            double distFromIncident = calculateDistanceMeters(wp[0], wp[1], 
+                                    blockingIncident.getLatitude(), blockingIncident.getLongitude());
+                            double minSafeDistance = Math.max(blockingIncident.getRadiusKm() * 1000 * 1.5, 100); // At least 1.5x radius or 100m
+                            if (distFromIncident < minSafeDistance) {
+                                validDetour = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (validDetour && !candidateWaypoints.isEmpty()) {
+                    log.info("✅ Found valid detour with bearing offset {} and distance {} km", offset, safeDistanceKm);
+                    return candidateWaypoints;
+                }
+            }
+        }
+        
+        // Fallback: return a larger detour that definitely avoids the incident
+        if (!blockingIncidents.isEmpty()) {
+            Incident first = blockingIncidents.get(0);
+            // Try a much larger detour as fallback
+            double detourBearing = (baseBearing + 90) % 360;
+            double fallbackDistance = Math.max(first.getRadiusKm() * 3, 0.5); // At least 3x the radius or 500m
+            double[] detour = getOffsetCoordinates(first.getLatitude(), first.getLongitude(), fallbackDistance, detourBearing);
+            detourWaypoints.add(detour);
+            log.warn("⚠️ Using fallback detour with distance {} km - may not avoid all incidents", fallbackDistance);
+        }
+        
+        return detourWaypoints;
+    }
+    
+    /**
+     * Check if a path segment is blocked by ANY incident in the list
+     */
+    private boolean isPathBlockedByAnyIncident(double lat1, double lon1, double lat2, double lon2, List<Incident> incidents) {
+        for (Incident incident : incidents) {
+            if (incident.getLatitude() == null || incident.getLongitude() == null) continue;
+            if (isIncidentBlockingSegment(lat1, lon1, lat2, lon2, incident)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Find all incidents blocking a specific segment
+     */
+    private List<Incident> findBlockingIncidents(double lat1, double lon1, double lat2, double lon2, List<Incident> incidents) {
+        List<Incident> blocking = new ArrayList<>();
+        for (Incident incident : incidents) {
+            if (incident.getLatitude() == null || incident.getLongitude() == null) continue;
+            if (isIncidentBlockingSegment(lat1, lon1, lat2, lon2, incident)) {
+                blocking.add(incident);
+            }
+        }
+        return blocking;
     }
 
     private double[] getClosestPointOnSegment(double x1, double y1, double x2, double y2, double px, double py) {

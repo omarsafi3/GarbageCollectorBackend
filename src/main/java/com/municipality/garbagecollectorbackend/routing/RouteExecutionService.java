@@ -1,6 +1,6 @@
 package com.municipality.garbagecollectorbackend.routing;
 
-import com.municipality.garbagecollectorbackend.DTO.*;
+import com.municipality.garbagecollectorbackend.dto.*;
 import com.municipality.garbagecollectorbackend.model.*;
 import com.municipality.garbagecollectorbackend.repository.ActiveRouteRepository;
 import com.municipality.garbagecollectorbackend.service.*;
@@ -502,10 +502,14 @@ public class RouteExecutionService {
         return R * c;
     }
 
-    private boolean isNearActiveIncident(double lat, double lng, String vehicleId) {
+    /**
+     * Find the incident that the vehicle is approaching (if any)
+     * Returns the incident if found, null otherwise
+     */
+    private Incident findNearbyActiveIncident(double lat, double lng, String vehicleId, ActiveRoute route) {
         Long lastReroute = lastRerouteTime.get(vehicleId);
         if (lastReroute != null && System.currentTimeMillis() - lastReroute < REROUTE_COOLDOWN_MS) {
-            return false;
+            return null;
         }
 
         List<Incident> activeIncidents = incidentService.getActiveIncidents();
@@ -518,16 +522,43 @@ public class RouteExecutionService {
             double effectiveRadius = Math.min(incident.getRadiusKm(), maxIncidentRadius);
 
             if (distance <= effectiveRadius * 1000) {
-                logger.warn("🚧 Vehicle {} approaching incident - Distance: {}m", vehicleId, (int)distance);
+                logger.warn("🚧 Vehicle {} approaching incident {} - Distance: {}m", vehicleId, incident.getId(), (int)distance);
                 lastRerouteTime.put(vehicleId, System.currentTimeMillis());
-                return true;
+                return incident;
             }
         }
-        return false;
+        return null;
     }
 
-    private void triggerReroute(ActiveRoute route, RoutePoint currentPosition, List<BinStop> remainingBins) {
+    private void triggerReroute(ActiveRoute route, RoutePoint currentPosition, List<BinStop> remainingBins, Incident triggeringIncident) {
         try {
+            // ✅ Check for reroute loop - if we've hit the same incident multiple times, stop rerouting
+            if (route.isInRerouteLoop()) {
+                logger.error("🔄 Vehicle {} is stuck in a reroute loop! Stopping reroute attempts.", route.getVehicleId());
+                route.setBlockedByIncident(true);
+                activeRouteRepository.save(route);
+                return;
+            }
+            
+            // ✅ Check if we've exceeded max reroute attempts
+            if (route.hasExceededRerouteLimit()) {
+                logger.error("⛔ Vehicle {} has exceeded max reroute attempts ({}). Route blocked.", 
+                        route.getVehicleId(), route.getRerouteAttempts());
+                route.setBlockedByIncident(true);
+                activeRouteRepository.save(route);
+                return;
+            }
+            
+            // ✅ Record this reroute attempt and the triggering incident
+            if (triggeringIncident != null) {
+                route.recordRerouteAttempt(
+                        currentPosition.getLatitude(), 
+                        currentPosition.getLongitude(), 
+                        triggeringIncident.getId()
+                );
+                route.addAvoidedIncident(triggeringIncident.getId());
+            }
+
             Set<String> collectedBinIds = route.getBinStops().stream()
                     .filter(s -> "COLLECTED".equals(s.getStatus()))
                     .map(BinStop::getBinId)
@@ -543,12 +574,20 @@ public class RouteExecutionService {
                 return;
             }
 
-            logger.info("🔄 Generating reroute with {} uncollected bins", remainingBinIds.size());
+            logger.info("🔄 Generating reroute #{} with {} uncollected bins, avoiding {} previously encountered incidents",
+                    route.getRerouteAttempts(), remainingBinIds.size(), route.getAvoidedIncidentIds().size());
 
-            List<Incident> incidentsToAvoid = incidentService.getActiveIncidents().stream()
+            // ✅ Get ALL active road block incidents
+            List<Incident> allActiveIncidents = incidentService.getActiveIncidents().stream()
                     .filter(i -> i.getType() == IncidentType.ROAD_BLOCK)
                     .filter(i -> i.getLatitude() != null && i.getLongitude() != null)
                     .collect(Collectors.toList());
+            
+            // ✅ Also include any previously avoided incidents that might have been resolved but we still want to avoid
+            // This ensures we don't route back through incidents we've already encountered
+            Set<String> avoidedIds = route.getAvoidedIncidentIds();
+            logger.info("📋 Total incidents to avoid: {} active + {} previously avoided = checking all", 
+                    allActiveIncidents.size(), avoidedIds.size());
 
             RouteResponse newRoute = routeService.generateRerouteWithAvoidance(
                     route.getVehicleId(),
@@ -556,7 +595,7 @@ public class RouteExecutionService {
                     currentPosition.getLongitude(),
                     remainingBinIds,
                     route.getDepartmentId(),
-                    incidentsToAvoid
+                    allActiveIncidents
             );
 
             if (newRoute.getBins().isEmpty()) {
@@ -564,12 +603,22 @@ public class RouteExecutionService {
                 return;
             }
 
-            Location startLoc = new Location(currentPosition.getLatitude(), currentPosition.getLongitude());
-            List<RoutePoint> completePolyline = buildCompletePolylineFromLocation(
-                    newRoute.getBins(),
-                    route.getDepartmentId(),
-                    startLoc
-            );
+            // ✅ USE THE POLYLINE ALREADY BUILT BY generateRerouteWithAvoidance
+            // This polyline was already built with incident avoidance in mind
+            List<RoutePoint> completePolyline = newRoute.getPolyline();
+            
+            // If the polyline is empty or null, fall back to building it (shouldn't happen)
+            if (completePolyline == null || completePolyline.isEmpty()) {
+                logger.warn("⚠️ generateRerouteWithAvoidance returned empty polyline, building fallback");
+                Location startLoc = new Location(currentPosition.getLatitude(), currentPosition.getLongitude());
+                completePolyline = buildCompletePolylineFromLocation(
+                        newRoute.getBins(),
+                        route.getDepartmentId(),
+                        startLoc
+                );
+            } else {
+                logger.info("✅ Using pre-built polyline with {} points from generateRerouteWithAvoidance", completePolyline.size());
+            }
 
             route.setFullRoutePolyline(completePolyline);
             route.setAnimationProgress(0.0);
@@ -650,6 +699,14 @@ public class RouteExecutionService {
     }
 
     private void updateTruckPosition(ActiveRoute route) {
+        List<RoutePoint> polyline = route.getFullRoutePolyline();
+        
+        // Safety check: if no polyline, skip this route
+        if (polyline == null || polyline.isEmpty()) {
+            logger.warn("⚠️ Route {} has empty polyline, skipping update", route.getId());
+            return;
+        }
+        
         double simulationSpeedKmH = 480.0;
 
         double timeStepHours = 0.25 / 3600.0;
@@ -667,9 +724,10 @@ public class RouteExecutionService {
         double currentProgress = route.getAnimationProgress();
         double newProgress = Math.min(1.0, currentProgress + progressIncrement);
 
-        List<RoutePoint> polyline = route.getFullRoutePolyline();
         int targetIndex = (int) (newProgress * (polyline.size() - 1));
-
+        
+        // Ensure targetIndex is within valid bounds
+        if (targetIndex < 0) targetIndex = 0;
         if (targetIndex >= polyline.size()) targetIndex = polyline.size() - 1;
 
         RoutePoint newPosition = polyline.get(targetIndex);
@@ -685,14 +743,25 @@ public class RouteExecutionService {
             vehicleInfo.put("fillLevel", newProgress * 100.0);
         }
 
-        if (isNearActiveIncident(newPosition.getLatitude(), newPosition.getLongitude(), route.getVehicleId())) {
-            List<BinStop> remainingBins = route.getBinStops().subList(
-                    route.getCurrentBinIndex(),
-                    route.getBinStops().size()
-            );
-            if (!remainingBins.isEmpty()) {
-                triggerReroute(route, newPosition, remainingBins);
-                return;
+        // ✅ Check if vehicle is already blocked - don't try to move if blocked
+        if (route.isBlockedByIncident()) {
+            logger.warn("🚫 Vehicle {} is blocked by incident, not moving", route.getVehicleId());
+            return;
+        }
+
+        // ✅ Find the specific incident the vehicle is approaching
+        Incident nearbyIncident = findNearbyActiveIncident(newPosition.getLatitude(), newPosition.getLongitude(), route.getVehicleId(), route);
+        if (nearbyIncident != null) {
+            List<BinStop> binStops = route.getBinStops();
+            int currentIdx = route.getCurrentBinIndex();
+            
+            // Safety check for valid index range
+            if (binStops != null && !binStops.isEmpty() && currentIdx >= 0 && currentIdx < binStops.size()) {
+                List<BinStop> remainingBins = binStops.subList(currentIdx, binStops.size());
+                if (!remainingBins.isEmpty()) {
+                    triggerReroute(route, newPosition, remainingBins, nearbyIncident);
+                    return;
+                }
             }
         }
 
@@ -716,7 +785,19 @@ public class RouteExecutionService {
 
     private void checkBinCollection(ActiveRoute route, RoutePoint currentPos) {
         List<BinStop> binStops = route.getBinStops();
+        
+        // Safety check: if no bins, nothing to do
+        if (binStops == null || binStops.isEmpty()) {
+            return;
+        }
+        
         int currentBinIndex = route.getCurrentBinIndex();
+        
+        // Safety check: ensure index is valid
+        if (currentBinIndex < 0) {
+            currentBinIndex = 0;
+            route.setCurrentBinIndex(0);
+        }
 
         while (currentBinIndex < binStops.size() && "COLLECTED".equals(binStops.get(currentBinIndex).getStatus())) {
             currentBinIndex++;

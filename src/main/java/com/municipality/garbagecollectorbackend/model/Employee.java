@@ -12,6 +12,11 @@ import org.springframework.data.mongodb.core.mapping.Document;
 @Document(collection = "employees")
 public class Employee {
 
+    public enum EmployeeRole {
+        DRIVER,
+        COLLECTOR
+    }
+
     @Id
     private String id;
 
@@ -20,6 +25,8 @@ public class Employee {
     private String lastName;
 
     private Boolean available;
+
+    private EmployeeRole role;  // DRIVER or COLLECTOR
 
     private Department department;
 

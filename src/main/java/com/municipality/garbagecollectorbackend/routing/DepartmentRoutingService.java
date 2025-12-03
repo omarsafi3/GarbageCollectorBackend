@@ -1,13 +1,14 @@
 package com.municipality.garbagecollectorbackend.routing;
 
-import com.municipality.garbagecollectorbackend.DTO.VehicleRouteResult;
+import com.municipality.garbagecollectorbackend.dto.VehicleRouteResult;
+import com.municipality.garbagecollectorbackend.dto.BinDTO;
 import com.municipality.garbagecollectorbackend.model.*;
 import com.municipality.garbagecollectorbackend.service.BinService;
 import com.municipality.garbagecollectorbackend.service.DepartmentService;
 import com.municipality.garbagecollectorbackend.service.EmployeeService;
 import com.municipality.garbagecollectorbackend.service.VehicleService;
 import com.municipality.garbagecollectorbackend.service.IncidentService;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -21,7 +22,10 @@ import java.util.stream.Collectors;
  * - maps routes to DTOs.
  */
 @Service
+@RequiredArgsConstructor
 public class DepartmentRoutingService {
+
+    private static final int CRITICAL_BIN_THRESHOLD = 70;
 
     private final RouteOptimizationService routeOptimizationService;
     private final BinService binService;
@@ -29,23 +33,6 @@ public class DepartmentRoutingService {
     private final VehicleService vehicleService;
     private final EmployeeService employeeService;
     private final IncidentService incidentService;
-
-    @Autowired
-    public DepartmentRoutingService(
-            RouteOptimizationService routeOptimizationService,
-            BinService binService,
-            DepartmentService departmentService,
-            VehicleService vehicleService,
-            EmployeeService employeeService,
-            IncidentService incidentService
-    ) {
-        this.routeOptimizationService = routeOptimizationService;
-        this.binService = binService;
-        this.departmentService = departmentService;
-        this.vehicleService = vehicleService;
-        this.employeeService = employeeService;
-        this.incidentService = incidentService;
-    }
 
     /**
      * Optimize routes for a department considering:
@@ -88,9 +75,9 @@ public class DepartmentRoutingService {
                 .filter(b -> overfillBinIds.contains(b.getId()))
                 .toList();
 
-        // normal high-fill bins (>= 70) without overfill incident
+        // normal high-fill bins (>= threshold) without overfill incident
         List<Bin> normalHighBins = allBins.stream()
-                .filter(b -> b.getFillLevel() >= 70 && !overfillBinIds.contains(b.getId()))
+                .filter(b -> b.getFillLevel() >= CRITICAL_BIN_THRESHOLD && !overfillBinIds.contains(b.getId()))
                 .toList();
 
         // final candidate bins: overfill first, then high-fill
@@ -99,7 +86,7 @@ public class DepartmentRoutingService {
         bins.addAll(normalHighBins);
 
         if (bins.isEmpty()) {
-            System.out.println("[DeptRouting] No candidate bins (no OVERFILL and no bin >= 70%)");
+            System.out.println("[DeptRouting] No candidate bins (no OVERFILL and no bin >= " + CRITICAL_BIN_THRESHOLD + "%)");
             return List.of();
         }
 
@@ -111,24 +98,16 @@ public class DepartmentRoutingService {
         // ---------- 2) EMPLOYEES & VEHICLES (DISPATCH RULE) ----------
 
         // employees of this department
-        List<Employee> employeesInDept = employeeService.getAllEmployees().stream()
-                .filter(e -> e.getDepartment() != null &&
-                        departmentId.equals(e.getDepartment().getId()))
-                .toList();
+        List<Employee> employeesInDept = employeeService.getEmployeesByDepartment(departmentId);
 
         long availableEmployeesInDept = employeesInDept.stream()
                 .filter(Employee::getAvailable)
                 .count();
 
         // vehicles of this department
-        List<Vehicle> vehiclesInDept = vehicleService.getAllVehicles().stream()
-                .filter(v -> v.getDepartment() != null &&
-                        departmentId.equals(v.getDepartment().getId()))
-                .toList();
+        List<Vehicle> vehiclesInDept = vehicleService.getVehiclesByDepartment(departmentId);
 
-        List<Vehicle> availableVehiclesInDept = vehiclesInDept.stream()
-                .filter(Vehicle::getAvailable)
-                .toList();
+        List<Vehicle> availableVehiclesInDept = vehicleService.getAvailableVehiclesByDepartment(departmentId);
 
         int availableEmployees = (int) availableEmployeesInDept;
         int availableVehicles = availableVehiclesInDept.size();
@@ -180,10 +159,10 @@ public class DepartmentRoutingService {
             String vehicleId = r.getVehicleId();
             List<String> binIds = r.getOrderedBinIds();
 
-            List<DTO.BinDTO> binDtos = binIds.stream()
+            List<BinDTO> binDtos = binIds.stream()
                     .map(binIdMap::get)
                     .filter(Objects::nonNull)
-                    .map(bin -> new DTO.BinDTO(bin.getId(), bin.getLatitude(), bin.getLongitude()))
+                    .map(bin -> new BinDTO(bin.getId(), bin.getLatitude(), bin.getLongitude()))
                     .toList();
 
             DepartmentRouteDTO dto = new DepartmentRouteDTO(vehicleId, binDtos);
@@ -198,9 +177,9 @@ public class DepartmentRoutingService {
     /** DTO returned to controllers: per-vehicle route for a department. */
     public static class DepartmentRouteDTO {
         private String vehicleId;
-        private List<DTO.BinDTO> bins;
+        private List<BinDTO> bins;
 
-        public DepartmentRouteDTO(String vehicleId, List<DTO.BinDTO> bins) {
+        public DepartmentRouteDTO(String vehicleId, List<BinDTO> bins) {
             this.vehicleId = vehicleId;
             this.bins = bins;
         }
@@ -213,11 +192,11 @@ public class DepartmentRoutingService {
             this.vehicleId = vehicleId;
         }
 
-        public List<DTO.BinDTO> getBins() {
+        public List<BinDTO> getBins() {
             return bins;
         }
 
-        public void setBins(List<DTO.BinDTO> bins) {
+        public void setBins(List<BinDTO> bins) {
             this.bins = bins;
         }
     }
