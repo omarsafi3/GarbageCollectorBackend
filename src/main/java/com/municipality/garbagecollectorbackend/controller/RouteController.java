@@ -6,6 +6,7 @@ import com.municipality.garbagecollectorbackend.routing.RouteExecutionService;
 import com.municipality.garbagecollectorbackend.routing.RouteOptimizationService;
 import com.municipality.garbagecollectorbackend.dto.VehicleRouteResult;
 import com.municipality.garbagecollectorbackend.dto.BinDTO;
+import com.municipality.garbagecollectorbackend.service.AutoDispatchService;
 import com.municipality.garbagecollectorbackend.service.BinService;
 import com.municipality.garbagecollectorbackend.service.DepartmentService;
 import com.municipality.garbagecollectorbackend.service.PolylineService;
@@ -43,6 +44,7 @@ public class RouteController {
     private final VehicleService vehicleService;
     private final RouteExecutionService routeExecutionService;
     private final PolylineService polylineService;
+    private final AutoDispatchService autoDispatchService;
 
     @Operation(summary = "Optimize route for vehicle", description = "Returns optimized bins assigned to a specific vehicle")
     @ApiResponse(responseCode = "200", description = "Optimized route bins")
@@ -704,6 +706,78 @@ public class RouteController {
         }
 
         return ResponseEntity.ok(info);
+    }
+
+    // ==================== AUTO-DISPATCH ENDPOINTS ====================
+
+    @Operation(summary = "Get auto-dispatch status", description = "Returns the current auto-dispatch configuration and availability")
+    @ApiResponse(responseCode = "200", description = "Auto-dispatch status returned")
+    @GetMapping("/auto-dispatch/status/{departmentId}")
+    public ResponseEntity<?> getAutoDispatchStatus(@PathVariable String departmentId) {
+        Map<String, Object> status = autoDispatchService.getAutoDispatchStatus(departmentId);
+        return ResponseEntity.ok(status);
+    }
+
+    @Operation(summary = "Trigger auto-dispatch", description = "Manually triggers the auto-dispatch process for a department")
+    @ApiResponse(responseCode = "200", description = "Auto-dispatch triggered")
+    @PostMapping("/auto-dispatch/trigger/{departmentId}")
+    public ResponseEntity<?> triggerAutoDispatch(@PathVariable String departmentId) {
+        log.info("🤖 Manual auto-dispatch triggered for department: {}", departmentId);
+        Map<String, Object> result = autoDispatchService.triggerAutoDispatch(departmentId);
+        return ResponseEntity.ok(result);
+    }
+
+    @Operation(summary = "Enable auto-dispatch", description = "Enables automatic vehicle dispatching")
+    @ApiResponse(responseCode = "200", description = "Auto-dispatch enabled")
+    @PostMapping("/auto-dispatch/enable")
+    public ResponseEntity<?> enableAutoDispatch() {
+        autoDispatchService.setAutoDispatchEnabled(true);
+        return ResponseEntity.ok(Map.of(
+                "message", "Auto-dispatch enabled",
+                "enabled", true,
+                "timestamp", Instant.now().toString()
+        ));
+    }
+
+    @Operation(summary = "Disable auto-dispatch", description = "Disables automatic vehicle dispatching")
+    @ApiResponse(responseCode = "200", description = "Auto-dispatch disabled")
+    @PostMapping("/auto-dispatch/disable")
+    public ResponseEntity<?> disableAutoDispatch() {
+        autoDispatchService.setAutoDispatchEnabled(false);
+        return ResponseEntity.ok(Map.of(
+                "message", "Auto-dispatch disabled",
+                "enabled", false,
+                "timestamp", Instant.now().toString()
+        ));
+    }
+
+    @Operation(summary = "Unblock vehicle", description = "Clears the blocked state of a vehicle and triggers rescue reroute")
+    @ApiResponse(responseCode = "200", description = "Vehicle unblocked successfully")
+    @ApiResponse(responseCode = "404", description = "Vehicle route not found")
+    @PostMapping("/unblock/{vehicleId}")
+    public ResponseEntity<?> unblockVehicle(@PathVariable String vehicleId) {
+        try {
+            ActiveRoute route = routeExecutionService.getActiveRouteByVehicle(vehicleId);
+            if (route == null) {
+                return ResponseEntity.notFound().build();
+            }
+            
+            route.setBlockedByIncident(false);
+            route.clearRerouteHistory();
+            routeExecutionService.saveRoute(route);
+            
+            log.info("🆘 Vehicle {} unblocked manually, will attempt rescue reroute", vehicleId);
+            
+            return ResponseEntity.ok(Map.of(
+                    "message", "Vehicle unblocked successfully",
+                    "vehicleId", vehicleId,
+                    "timestamp", Instant.now().toString()
+            ));
+        } catch (Exception e) {
+            log.error("Failed to unblock vehicle {}: {}", vehicleId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage()));
+        }
     }
 
 }

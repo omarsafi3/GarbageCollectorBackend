@@ -61,7 +61,7 @@ public class RouteExecutionService {
     private IncidentService incidentService;
 
     private final Map<String, Long> lastRerouteTime = new ConcurrentHashMap<>();
-    private static final long REROUTE_COOLDOWN_MS = 4000;
+    private static final long REROUTE_COOLDOWN_MS = 15000; // 15 seconds cooldown between reroutes
 
     private final Map<String, Map<String, Object>> activeVehiclesInfo = new ConcurrentHashMap<>();
 
@@ -398,6 +398,80 @@ public class RouteExecutionService {
         return activeRouteRepository.findByStatus("IN_PROGRESS");
     }
 
+    /**
+     * Check if a vehicle currently has an active route
+     */
+    public boolean isVehicleActive(String vehicleId) {
+        Optional<ActiveRoute> activeRoute = activeRouteRepository.findByVehicleId(vehicleId);
+        return activeRoute.isPresent() && "IN_PROGRESS".equals(activeRoute.get().getStatus());
+    }
+
+    /**
+     * Start a route for a vehicle using a pre-generated route
+     */
+    public ActiveRoute startRoute(String vehicleId, String departmentId, PreGeneratedRoute preGenRoute) {
+        Optional<ActiveRoute> existingOpt = activeRouteRepository.findByVehicleId(vehicleId);
+        Department department = departmentService.getDepartmentById(departmentId)
+                .orElseThrow(() -> new RuntimeException("Department not found: " + departmentId));
+        
+        if (existingOpt.isPresent()) {
+            ActiveRoute existing = existingOpt.get();
+            if ("IN_PROGRESS".equals(existing.getStatus())) {
+                logger.warn("⚠️ Vehicle {} already has active route. Cancelling it.", vehicleId);
+                existing.setStatus("CANCELLED");
+                activeRouteRepository.save(existing);
+            }
+        }
+
+        List<RouteBin> routeBins = preGenRoute.getRouteBins();
+        List<RoutePoint> fullPolyline = preGenRoute.getPolyline();
+        
+        if (fullPolyline == null || fullPolyline.isEmpty()) {
+            logger.warn("⚠️ Pre-generated route has no polyline, building fresh");
+            fullPolyline = buildCompletePolyline(routeBins, departmentId);
+            fullPolyline = ensureDepartmentReturnLastPoint(fullPolyline, department);
+        }
+
+        List<BinStop> binStops = routeBins.stream()
+                .map(rb -> new BinStop(rb.getId(), rb.getLatitude(), rb.getLongitude(), 0))
+                .collect(Collectors.toList());
+
+        ActiveRoute activeRoute = new ActiveRoute();
+        activeRoute.setVehicleId(vehicleId);
+        activeRoute.setDepartmentId(departmentId);
+        activeRoute.setStatus("IN_PROGRESS");
+        activeRoute.setStartTime(LocalDateTime.now());
+        activeRoute.setBinStops(binStops);
+        activeRoute.setFullRoutePolyline(fullPolyline);
+        activeRoute.setTotalBins(routeBins.size());
+        activeRoute.setBinsCollected(0);
+        activeRoute.setCurrentBinIndex(0);
+        activeRoute.setAnimationProgress(0.0);
+        activeRoute.setTotalDistanceKm(calculateTotalDistance(fullPolyline));
+
+        activeRouteRepository.save(activeRoute);
+
+        // Update vehicle status
+        vehicleService.getVehicleById(vehicleId).ifPresent(vehicle -> {
+            vehicle.setAvailable(false);
+            vehicle.setStatus(Vehicle.VehicleStatus.IN_ROUTE);
+            vehicleService.saveVehicle(vehicle);
+        });
+
+        // Track vehicle info
+        Map<String, Object> vehicleInfo = new HashMap<>();
+        vehicleInfo.put("vehicleId", vehicleId);
+        vehicleInfo.put("status", "IN_PROGRESS");
+        vehicleInfo.put("totalBins", routeBins.size());
+        vehicleInfo.put("routeId", preGenRoute.getRouteId());
+        activeVehiclesInfo.put(vehicleId, vehicleInfo);
+
+        logger.info("✅ Started route for vehicle {} with {} bins from pre-generated route {}",
+                vehicleId, routeBins.size(), preGenRoute.getRouteId());
+
+        return activeRoute;
+    }
+
     public void updateRoute(String vehicleId, RouteResponse newRoute) {
         Optional<ActiveRoute> routeOpt = activeRouteRepository.findByVehicleId(vehicleId);
         if (routeOpt.isEmpty()) {
@@ -420,6 +494,10 @@ public class RouteExecutionService {
 
         vehicleUpdatePublisher.publishRouteUpdate(vehicleId, newRoute);
         logger.info("🔄 Vehicle {} route updated and pushed to clients", vehicleId);
+    }
+
+    public void saveRoute(ActiveRoute route) {
+        activeRouteRepository.save(route);
     }
 
     public void completeRoute(String vehicleId) {
@@ -512,17 +590,26 @@ public class RouteExecutionService {
             return null;
         }
 
+        // Get set of incidents already being avoided
+        Set<String> avoidedIncidents = route.getAvoidedIncidentIds();
+
         List<Incident> activeIncidents = incidentService.getActiveIncidents();
         for (Incident incident : activeIncidents) {
             if (incident.getType() != IncidentType.ROAD_BLOCK) continue;
             if (incident.getLatitude() == null || incident.getLongitude() == null) continue;
+            
+            // Skip incidents we're already avoiding
+            if (avoidedIncidents.contains(incident.getId())) continue;
 
             double distance = calculateDistance(lat, lng, incident.getLatitude(), incident.getLongitude());
-            double maxIncidentRadius = 0.08;
-            double effectiveRadius = Math.min(incident.getRadiusKm(), maxIncidentRadius);
+            // Use actual incident radius with early detection buffer (detect 50m before entering incident zone)
+            double earlyDetectionBuffer = 50.0; // meters
+            double incidentRadiusMeters = incident.getRadiusKm() * 1000.0;
+            double detectionRadius = incidentRadiusMeters + earlyDetectionBuffer;
 
-            if (distance <= effectiveRadius * 1000) {
-                logger.warn("🚧 Vehicle {} approaching incident {} - Distance: {}m", vehicleId, incident.getId(), (int)distance);
+            if (distance <= detectionRadius) {
+                logger.warn("🚧 Vehicle {} approaching incident {} - Distance: {}m (incident radius: {}m)", 
+                        vehicleId, incident.getId(), (int)distance, (int)incidentRadiusMeters);
                 lastRerouteTime.put(vehicleId, System.currentTimeMillis());
                 return incident;
             }
@@ -743,9 +830,38 @@ public class RouteExecutionService {
             vehicleInfo.put("fillLevel", newProgress * 100.0);
         }
 
-        // ✅ Check if vehicle is already blocked - don't try to move if blocked
+        // ✅ Check if vehicle is blocked - attempt rescue reroute every 10 seconds
         if (route.isBlockedByIncident()) {
-            logger.warn("🚫 Vehicle {} is blocked by incident, not moving", route.getVehicleId());
+            Long lastRescueAttempt = lastRerouteTime.get(route.getVehicleId() + "_rescue");
+            long now = System.currentTimeMillis();
+            
+            // Try rescue reroute every 10 seconds
+            if (lastRescueAttempt == null || now - lastRescueAttempt > 10000) {
+                lastRerouteTime.put(route.getVehicleId() + "_rescue", now);
+                logger.info("🆘 Attempting rescue reroute for blocked vehicle {}", route.getVehicleId());
+                
+                // Clear blocked state and reroute limits to allow fresh reroute
+                route.setBlockedByIncident(false);
+                route.clearRerouteHistory();
+                
+                List<BinStop> binStops = route.getBinStops();
+                int currentIdx = route.getCurrentBinIndex();
+                
+                if (binStops != null && !binStops.isEmpty() && currentIdx >= 0 && currentIdx < binStops.size()) {
+                    List<BinStop> remainingBins = binStops.subList(currentIdx, binStops.size());
+                    if (!remainingBins.isEmpty()) {
+                        // Get all active incidents to avoid
+                        List<Incident> allIncidents = incidentService.getActiveIncidents().stream()
+                                .filter(i -> i.getType() == IncidentType.ROAD_BLOCK)
+                                .filter(i -> i.getLatitude() != null && i.getLongitude() != null)
+                                .collect(Collectors.toList());
+                        
+                        Incident nearestIncident = allIncidents.isEmpty() ? null : allIncidents.get(0);
+                        triggerReroute(route, newPosition, remainingBins, nearestIncident);
+                        return;
+                    }
+                }
+            }
             return;
         }
 

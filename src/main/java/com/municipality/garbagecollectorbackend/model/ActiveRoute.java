@@ -106,6 +106,18 @@ public class ActiveRoute {
     public Set<String> getAvoidedIncidentIds() {
         return avoidedIncidentIds != null ? avoidedIncidentIds : new HashSet<>();
     }
+    
+    /**
+     * Clear reroute history and reset attempts - used for rescue reroutes
+     */
+    public void clearRerouteHistory() {
+        this.rerouteAttempts = 0;
+        if (this.rerouteHistory != null) {
+            this.rerouteHistory.clear();
+        }
+        // Note: We keep avoidedIncidentIds to still avoid known incidents
+    }
+    
     public List<RoutePoint> getRemainingRoutePoints() {
         if (fullRoutePolyline == null || fullRoutePolyline.isEmpty()) {
             return Collections.emptyList();

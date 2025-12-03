@@ -180,6 +180,13 @@ public class IncidentService {
         incident.setStatus(IncidentStatus.ACTIVE);
         Incident saved = incidentRepository.save(incident);
         publisher.publishIncidentUpdate(saved);
+        
+        // Trigger reroute for affected vehicles if this is a road block
+        if (saved.getType() == IncidentType.ROAD_BLOCK && 
+            saved.getLatitude() != null && saved.getLongitude() != null) {
+            rerouteAffectedVehicles(saved);
+        }
+        
         return saved;
     }
 

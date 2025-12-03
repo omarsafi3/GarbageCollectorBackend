@@ -300,8 +300,9 @@ public class RouteOptimizationService {
     private boolean isIncidentBlockingSegment(double lat1, double lon1, double lat2, double lon2, Incident incident) {
         double[] closest = getClosestPointOnSegment(lat1, lon1, lat2, lon2, incident.getLatitude(), incident.getLongitude());
         double d = calculateDistanceMeters(incident.getLatitude(), incident.getLongitude(), closest[0], closest[1]);
-        double effective = Math.min(incident.getRadiusKm(), 0.08) * 1000.0;
-        return d <= effective;
+        // Use actual incident radius with small buffer
+        double effectiveRadius = (incident.getRadiusKm() * 1000.0) + 20.0;
+        return d <= effectiveRadius;
     }
 
     /**
@@ -764,7 +765,8 @@ public class RouteOptimizationService {
                         incident.getLatitude(), incident.getLongitude(),
                         closestPoint[0], closestPoint[1]
                 );
-                double effectiveRadius = Math.min(incident.getRadiusKm(), 0.08) * 1000.0;
+                // Use actual incident radius with small buffer for safety
+                double effectiveRadius = (incident.getRadiusKm() * 1000.0) + 20.0; // radius + 20m buffer
                 if (distance <= effectiveRadius) {
                     segmentBlocked = true;
                     blockingIncident = incident;
