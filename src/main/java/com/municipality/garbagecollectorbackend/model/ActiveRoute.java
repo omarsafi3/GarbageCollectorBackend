@@ -2,6 +2,9 @@ package com.municipality.garbagecollectorbackend.model;
 
 import lombok.Data;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -12,13 +15,20 @@ import java.util.Set;
 
 @Data
 @Document(collection = "active_routes")
+@CompoundIndexes({
+    @CompoundIndex(name = "vehicle_status_idx", def = "{'vehicleId': 1, 'status': 1}"),
+    @CompoundIndex(name = "dept_status_idx", def = "{'departmentId': 1, 'status': 1}")
+})
 public class ActiveRoute {
     @Id
     private String id;
     private boolean rerouted = false;
     private boolean blockedByIncident = false;
 
+    @Indexed
     private String vehicleId;
+    
+    @Indexed
     private String departmentId;
 
     private List<RoutePoint> fullRoutePolyline;
@@ -28,7 +38,10 @@ public class ActiveRoute {
     private double animationProgress;
     private int currentBinIndex;
 
+    @Indexed
     private String status;
+    
+    @Indexed
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private LocalDateTime lastUpdateTime;

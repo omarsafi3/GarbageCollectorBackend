@@ -7,6 +7,9 @@ import com.municipality.garbagecollectorbackend.repository.BinRepository;
 import com.municipality.garbagecollectorbackend.repository.VehicleRepository;
 import com.municipality.garbagecollectorbackend.repository.DepartmentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -42,10 +45,12 @@ public class VehicleService {
     @Autowired
     private EmployeeService employeeService;
 
+    @Cacheable(value = "vehicles", key = "'all'")
     public List<Vehicle> getAllVehicles() {
         return vehicleRepository.findAll();
     }
 
+    @Cacheable(value = "vehicles", key = "#id")
     public Optional<Vehicle> getVehicleById(String id) {
         return vehicleRepository.findById(id);
     }
@@ -73,12 +78,17 @@ public class VehicleService {
      * @param departmentId the department ID
      * @return list of vehicles in the department
      */
+    @Cacheable(value = "vehiclesByDepartment", key = "#departmentId")
     public List<Vehicle> getVehiclesByDepartment(String departmentId) {
         return vehicleRepository.findAll().stream()
                 .filter(v -> v.getDepartment() != null && departmentId.equals(v.getDepartment().getId()))
                 .collect(Collectors.toList());
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "vehicles", allEntries = true),
+        @CacheEvict(value = "vehiclesByDepartment", allEntries = true)
+    })
     public Vehicle saveVehicle(Vehicle vehicle) {
         if (vehicle.getDepartment() != null) {
             String depId = vehicle.getDepartment().getId();
@@ -89,6 +99,10 @@ public class VehicleService {
         return vehicleRepository.save(vehicle);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "vehicles", allEntries = true),
+        @CacheEvict(value = "vehiclesByDepartment", allEntries = true)
+    })
     public Vehicle updateVehicle(String id, Vehicle updated) {
         Vehicle existing = vehicleRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Vehicle not found"));
@@ -108,10 +122,20 @@ public class VehicleService {
         return vehicleRepository.save(existing);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "vehicles", allEntries = true),
+        @CacheEvict(value = "vehiclesByDepartment", allEntries = true)
+    })
     public void deleteVehicle(String id) {
         vehicleRepository.deleteById(id);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "vehicles", allEntries = true),
+        @CacheEvict(value = "vehiclesByDepartment", allEntries = true),
+        @CacheEvict(value = "bins", allEntries = true),
+        @CacheEvict(value = "binsByDepartment", allEntries = true)
+    })
     public Vehicle emptyBin(String vehicleId, String binId) {
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
                 .orElseThrow(() -> new RuntimeException("Vehicle not found"));

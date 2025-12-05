@@ -5,6 +5,9 @@ import com.municipality.garbagecollectorbackend.model.Department;
 import com.municipality.garbagecollectorbackend.repository.BinRepository;
 import com.municipality.garbagecollectorbackend.repository.DepartmentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -19,18 +22,25 @@ public class BinService {
     @Autowired
     public DepartmentRepository departmentRepository;
 
+    @Cacheable(value = "bins", key = "'all'")
     public List<Bin> getAllBins() {
         return binRepository.findAll();
     }
 
+    @Cacheable(value = "bins", key = "#id")
     public Bin getBinById(String id) {
         return binRepository.findById(id).orElse(null);
     }
 
+    @Cacheable(value = "binsByDepartment", key = "#departmentId")
     public List<Bin> getBinsByDepartmentId(String departmentId) {
         return binRepository.findByDepartmentId(departmentId);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "bins", allEntries = true),
+        @CacheEvict(value = "binsByDepartment", allEntries = true)
+    })
     public Bin saveBin(Bin bin) {
         if (bin.getDepartment() != null && bin.getDepartment().getId() != null) {
             String depId = bin.getDepartment().getId();
@@ -48,6 +58,10 @@ public class BinService {
         return binRepository.save(bin);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "bins", allEntries = true),
+        @CacheEvict(value = "binsByDepartment", allEntries = true)
+    })
     public void deleteBin(String id) {
         binRepository.deleteById(id);
     }
@@ -56,6 +70,10 @@ public class BinService {
         return binRepository.findAllById(binIds);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "bins", allEntries = true),
+        @CacheEvict(value = "binsByDepartment", allEntries = true)
+    })
     public Bin updateBin(String id, Bin updatedBin) {
         return binRepository.findById(id)
                 .map(existingBin -> {

@@ -6,6 +6,9 @@ import com.municipality.garbagecollectorbackend.model.EmployeeStatus;
 import com.municipality.garbagecollectorbackend.repository.DepartmentRepository;
 import com.municipality.garbagecollectorbackend.repository.EmployeeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -21,10 +24,12 @@ public class EmployeeService {
     @Autowired
     public DepartmentRepository departmentRepository;
 
+    @Cacheable(value = "employees", key = "'all'")
     public List<Employee> getAllEmployees() {
         return employeeRepository.findAll();
     }
 
+    @Cacheable(value = "employees", key = "#id")
     public Optional<Employee> getEmployeeById(String id) {
         return employeeRepository.findById(id);
     }
@@ -54,6 +59,7 @@ public class EmployeeService {
      * @param departmentId the department ID
      * @return list of employees in the department
      */
+    @Cacheable(value = "employeesByDepartment", key = "#departmentId")
     public List<Employee> getEmployeesByDepartment(String departmentId) {
         return employeeRepository.findAll()
                 .stream()
@@ -63,6 +69,10 @@ public class EmployeeService {
     }
 
     // ✅ NEW: Assign employees to vehicle
+    @Caching(evict = {
+        @CacheEvict(value = "employees", allEntries = true),
+        @CacheEvict(value = "employeesByDepartment", allEntries = true)
+    })
     public boolean assignEmployeesToVehicle(String vehicleId, List<String> employeeIds) {
         if (employeeIds.size() < 2) {
             throw new RuntimeException("At least 2 employees must be assigned to a vehicle");
@@ -108,6 +118,10 @@ public class EmployeeService {
     }
 
     // ✅ NEW: Update employee status when vehicle starts route
+    @Caching(evict = {
+        @CacheEvict(value = "employees", allEntries = true),
+        @CacheEvict(value = "employeesByDepartment", allEntries = true)
+    })
     public void markEmployeesInRoute(String vehicleId) {
         List<Employee> employees = employeeRepository.findAll()
                 .stream()
@@ -123,6 +137,10 @@ public class EmployeeService {
     }
 
     // ✅ NEW: Release employees when vehicle completes route
+    @Caching(evict = {
+        @CacheEvict(value = "employees", allEntries = true),
+        @CacheEvict(value = "employeesByDepartment", allEntries = true)
+    })
     public void releaseEmployeesFromVehicle(String vehicleId) {
         List<Employee> employees = employeeRepository.findAll()
                 .stream()
@@ -164,6 +182,10 @@ public class EmployeeService {
         return driverCount >= 1 && collectorCount >= 1;
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "employees", allEntries = true),
+        @CacheEvict(value = "employeesByDepartment", allEntries = true)
+    })
     public Employee saveEmployee(Employee employee) {
         if (employee.getDepartment() != null && employee.getDepartment().getId() != null) {
             Department dep = departmentRepository.findById(employee.getDepartment().getId())
@@ -189,6 +211,10 @@ public class EmployeeService {
         return employeeRepository.save(employee);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "employees", allEntries = true),
+        @CacheEvict(value = "employeesByDepartment", allEntries = true)
+    })
     public Employee updateEmployee(String id, Employee updatedEmployee) {
         Employee existing = employeeRepository.findById(id).orElse(null);
         if (existing == null) return null;
@@ -207,6 +233,10 @@ public class EmployeeService {
         return employeeRepository.save(existing);
     }
 
+    @Caching(evict = {
+        @CacheEvict(value = "employees", allEntries = true),
+        @CacheEvict(value = "employeesByDepartment", allEntries = true)
+    })
     public void deleteEmployee(String id) {
         employeeRepository.deleteById(id);
     }
