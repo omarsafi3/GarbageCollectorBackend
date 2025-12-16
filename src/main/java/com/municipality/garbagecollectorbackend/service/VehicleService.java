@@ -45,12 +45,9 @@ public class VehicleService {
     @Autowired
     private EmployeeService employeeService;
 
-    @Cacheable(value = "vehicles", key = "'all'")
     public List<Vehicle> getAllVehicles() {
         return vehicleRepository.findAll();
     }
-
-    @Cacheable(value = "vehicles", key = "#id")
     public Optional<Vehicle> getVehicleById(String id) {
         return vehicleRepository.findById(id);
     }
@@ -78,11 +75,18 @@ public class VehicleService {
      * @param departmentId the department ID
      * @return list of vehicles in the department
      */
-    @Cacheable(value = "vehiclesByDepartment", key = "#departmentId")
     public List<Vehicle> getVehiclesByDepartment(String departmentId) {
         return vehicleRepository.findAll().stream()
                 .filter(v -> v.getDepartment() != null && departmentId.equals(v.getDepartment().getId()))
                 .collect(Collectors.toList());
+    }
+
+    @Caching(evict = {
+        @CacheEvict(value = "vehicles", allEntries = true),
+        @CacheEvict(value = "vehiclesByDepartment", allEntries = true)
+    })
+    public void evictVehicleCaches() {
+        // Method used to programmatically evict vehicle-related caches after status changes
     }
 
     @Caching(evict = {
@@ -203,6 +207,9 @@ public class VehicleService {
 
         Vehicle updated = vehicleRepository.save(vehicle);
 
+        // Evict caches after changing vehicle status
+        evictVehicleCaches();
+
         System.out.println("🚀 Vehicle " + vehicleId + " started route with 2 employees - Status: IN_ROUTE");
 
         return updated;
@@ -221,6 +228,9 @@ public class VehicleService {
         vehicle.setStatusUpdatedAt(LocalDateTime.now());
         vehicleRepository.save(vehicle);
 
+        // Evict caches after status change
+        evictVehicleCaches();
+
         System.out.println("🏁 Vehicle " + vehicleId + " completed route - Status: RETURNING to depot");
 
         // ✅ CAPTURE DEPARTMENT ID BEFORE THREAD
@@ -236,6 +246,9 @@ public class VehicleService {
                     v.setStatus(Vehicle.VehicleStatus.UNLOADING);
                     v.setStatusUpdatedAt(LocalDateTime.now());
                     vehicleRepository.save(v);
+
+                    // Evict caches after status update
+                    evictVehicleCaches();
 
                     Map<String, Object> update = new HashMap<>();
                     update.put("vehicleId", vehicleId);
@@ -276,6 +289,9 @@ public class VehicleService {
                     v.setAvailable(true);
                     v.setStatusUpdatedAt(LocalDateTime.now());
                     vehicleRepository.save(v);
+
+                    // Evict caches after vehicle becomes available
+                    evictVehicleCaches();
 
                     update = new HashMap<>();
                     update.put("vehicleId", vehicleId);

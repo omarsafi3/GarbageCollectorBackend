@@ -15,6 +15,8 @@ public class VehicleStatusScheduler {
 
     @Autowired
     private VehicleRepository vehicleRepository;
+    @Autowired
+    private VehicleService vehicleService;
 
     /**
      * Runs every 10 SECONDS (faster for testing)
@@ -46,6 +48,9 @@ public class VehicleStatusScheduler {
                 vehicle.setStatusUpdatedAt(LocalDateTime.now());
                 vehicleRepository.save(vehicle);
 
+                // Ensure caches reflect the status change
+                vehicleService.evictVehicleCaches();
+
                 System.out.println("🏢 Vehicle " + vehicle.getId() + " arrived at depot - Status: UNLOADING");
             }
         }
@@ -71,12 +76,18 @@ public class VehicleStatusScheduler {
                 vehicle.setStatusUpdatedAt(LocalDateTime.now());
                 vehicleRepository.save(vehicle);
 
+                // Ensure caches reflect the status change
+                vehicleService.evictVehicleCaches();
+
                 System.out.println("✅ Vehicle " + vehicle.getId() + " ready for new route - Status: AVAILABLE");
             } else {
                 // Decrease by 10% every 10 seconds (faster for testing)
                 vehicle.setFillLevel(Math.max(0, currentFill - 10));  // ✅ Direct 10% decrease
                 vehicle.setStatusUpdatedAt(LocalDateTime.now());
                 vehicleRepository.save(vehicle);
+
+                // Ensure caches reflect the fill level update
+                vehicleService.evictVehicleCaches();
 
                 System.out.println("🔄 Vehicle " + vehicle.getId() + " unloading: " + vehicle.getFillLevel() + "%");
             }

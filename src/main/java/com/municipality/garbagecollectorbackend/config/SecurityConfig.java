@@ -43,8 +43,12 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Allow Angular frontend
-        configuration.setAllowedOriginPatterns(Arrays.asList("http://localhost:4200", "http://localhost:*"));
+        // Allow Angular frontend (dev and production via Nginx)
+        configuration.setAllowedOriginPatterns(Arrays.asList(
+            "http://localhost:4200", 
+            "http://localhost:*",
+            "http://localhost"
+        ));
 
         // Allow all HTTP methods
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
@@ -83,6 +87,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints
                         .requestMatchers("/auth/**").permitAll()
+                        .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         

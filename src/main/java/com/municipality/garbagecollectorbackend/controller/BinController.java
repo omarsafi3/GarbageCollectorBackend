@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/bins")
+@RequestMapping("/api/bins")
 @Tag(name = "Bins", description = "Garbage bin management endpoints")
 public class BinController {
 

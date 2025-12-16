@@ -1,5 +1,6 @@
 package com.municipality.garbagecollectorbackend.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,6 +16,7 @@ import java.io.Serializable;
 @NoArgsConstructor
 @AllArgsConstructor
 @Document(collection = "employees")
+@JsonIgnoreProperties(ignoreUnknown = true)
 @CompoundIndexes({
     @CompoundIndex(name = "dept_role_idx", def = "{'department.id': 1, 'role': 1}"),
     @CompoundIndex(name = "dept_available_idx", def = "{'department.id': 1, 'available': 1}"),
