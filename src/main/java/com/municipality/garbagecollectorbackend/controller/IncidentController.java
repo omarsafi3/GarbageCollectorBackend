@@ -48,11 +48,11 @@ public class IncidentController {
     @ApiResponse(responseCode = "200", description = "Road block reported and routes recalculated")
     @PostMapping("/road-block")
     public ResponseEntity<Incident> reportRoadBlock(@RequestBody RoadBlockRequest request) {
-        log.info("🚨 Received road block report at ({}, {}) with radius {}km",
+        log.info("Received road block report at ({}, {}) with radius {} km",
                 request.getLatitude(), request.getLongitude(),
                 request.getRadiusKm() != null ? request.getRadiusKm() : 0.5);
 
-        // ✅ Call the service method that triggers rerouting!
+ // Call the service method that triggers rerouting!
         Incident incident = incidentService.reportRoadBlock(
                 request.getLatitude(),
                 request.getLongitude(),

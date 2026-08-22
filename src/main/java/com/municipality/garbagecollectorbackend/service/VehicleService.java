@@ -41,7 +41,7 @@ public class VehicleService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
-    // ✅ NEW: Inject EmployeeService for employee management
+ // NEW: Inject EmployeeService for employee management
     @Autowired
     private EmployeeService employeeService;
 
@@ -177,27 +177,27 @@ public class VehicleService {
         update.put("fillLevel", updatedVehicle.getFillLevel());
         update.put("timestamp", Instant.now().toString());
         messagingTemplate.convertAndSend("/topic/vehicles", update);
-        System.out.println("📡 Sent vehicle update: " + vehicleId + " -> " + updatedVehicle.getFillLevel() + "%");
+ System.out.println(" Sent vehicle update: " + vehicleId + " -> " + updatedVehicle.getFillLevel() + "%");
 
         return updatedVehicle;
     }
 
-    // ✅ UPDATED: Check for employees before starting route
+ // UPDATED: Check for employees before starting route
     public Vehicle startRoute(String vehicleId) {
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
                 .orElseThrow(() -> new RuntimeException("Vehicle not found"));
 
-        // ✅ NEW: Check if vehicle is available
+ // NEW: Check if vehicle is available
         if (vehicle.getStatus() != Vehicle.VehicleStatus.AVAILABLE) {
             throw new RuntimeException("Vehicle is not available (status: " + vehicle.getStatus() + ")");
         }
 
-        // ✅ NEW: Check if vehicle has 2 employees assigned
+ // NEW: Check if vehicle has 2 employees assigned
         if (!employeeService.vehicleHasRequiredEmployees(vehicleId)) {
             throw new RuntimeException("Vehicle must have 2 employees assigned before starting route");
         }
 
-        // ✅ NEW: Mark employees as IN_ROUTE
+ // NEW: Mark employees as IN_ROUTE
         employeeService.markEmployeesInRoute(vehicleId);
 
         // Set vehicle to IN_ROUTE
@@ -210,7 +210,7 @@ public class VehicleService {
         // Evict caches after changing vehicle status
         evictVehicleCaches();
 
-        System.out.println("🚀 Vehicle " + vehicleId + " started route with 2 employees - Status: IN_ROUTE");
+ System.out.println(" Vehicle " + vehicleId + " started route with 2 employees - Status: IN_ROUTE");
 
         return updated;
     }
@@ -220,7 +220,7 @@ public class VehicleService {
                 .orElseThrow(() -> new RuntimeException("Vehicle not found"));
 
         if (vehicle.getStatus() != Vehicle.VehicleStatus.IN_ROUTE) {
-            System.out.println("⚠️ Vehicle " + vehicleId + " was not IN_ROUTE (status: " + vehicle.getStatus() + ")");
+ System.out.println(" Vehicle " + vehicleId + " was not IN_ROUTE (status: " + vehicle.getStatus() + ")");
         }
 
         // Set to RETURNING (going back to depot)
@@ -231,9 +231,9 @@ public class VehicleService {
         // Evict caches after status change
         evictVehicleCaches();
 
-        System.out.println("🏁 Vehicle " + vehicleId + " completed route - Status: RETURNING to depot");
+ System.out.println(" Vehicle " + vehicleId + " completed route - Status: RETURNING to depot");
 
-        // ✅ CAPTURE DEPARTMENT ID BEFORE THREAD
+ // CAPTURE DEPARTMENT ID BEFORE THREAD
         String departmentId = vehicle.getDepartment() != null ? vehicle.getDepartment().getId() : null;
 
         // Start unloading process in a separate thread
@@ -258,7 +258,7 @@ public class VehicleService {
                     update.put("timestamp", Instant.now().toString());
                     messagingTemplate.convertAndSend("/topic/vehicles", update);
 
-                    System.out.println("🏢 Vehicle " + vehicleId + " arrived at depot - Status: UNLOADING");
+ System.out.println(" Vehicle " + vehicleId + " arrived at depot - Status: UNLOADING");
 
                     double startFill = v.getFillLevel();
                     for (int i = 10; i >= 0; i--) {
@@ -276,7 +276,7 @@ public class VehicleService {
                         update.put("timestamp", Instant.now().toString());
                         messagingTemplate.convertAndSend("/topic/vehicles", update);
 
-                        System.out.println("🔄 Vehicle " + vehicleId + " unloading: " +
+ System.out.println(" Vehicle " + vehicleId + " unloading: " +
                                 String.format("%.1f", currentFill) + "%");
                     }
 
@@ -301,15 +301,15 @@ public class VehicleService {
                     update.put("timestamp", Instant.now().toString());
                     messagingTemplate.convertAndSend("/topic/vehicles", update);
 
-                    System.out.println("✅ Vehicle " + vehicleId + " ready for new route - Status: AVAILABLE, employees released");
+ System.out.println(" Vehicle " + vehicleId + " ready for new route - Status: AVAILABLE, employees released");
 
-                    // ✅ NEW: Generate new route for this vehicle immediately
+ // NEW: Generate new route for this vehicle immediately
                     if (departmentId != null) {
                         try {
-                            System.out.println("🔄 Triggering route generation for returned vehicle " + vehicleId);
+ System.out.println(" Triggering route generation for returned vehicle " + vehicleId);
                             routeOptimizationService.generateRouteForReturningVehicle(vehicleId, departmentId);
                         } catch (Exception e) {
-                            System.err.println("❌ Failed to generate route for returned vehicle: " + e.getMessage());
+ System.err.println(" Failed to generate route for returned vehicle: " + e.getMessage());
                         }
                     }
                 }

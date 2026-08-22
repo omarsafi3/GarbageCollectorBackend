@@ -55,7 +55,7 @@ class BinControllerTest {
     void testGetAllBins() throws Exception {
         when(binService.getAllBins()).thenReturn(List.of(testBin));
 
-        mockMvc.perform(get("/bins"))
+        mockMvc.perform(get("/api/bins"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("bin1"))
                 .andExpect(jsonPath("$[0].fillLevel").value(50));
@@ -68,7 +68,7 @@ class BinControllerTest {
     void testGetBinById_found() throws Exception {
         when(binService.getBinById("bin1")).thenReturn(testBin);
 
-        mockMvc.perform(get("/bins/bin1"))
+        mockMvc.perform(get("/api/bins/bin1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value("bin1"))
                 .andExpect(jsonPath("$.latitude").value(36.8))
@@ -80,7 +80,7 @@ class BinControllerTest {
     void testGetBinById_notFound() throws Exception {
         when(binService.getBinById("bin999")).thenReturn(null);
 
-        mockMvc.perform(get("/bins/bin999"))
+        mockMvc.perform(get("/api/bins/bin999"))
                 .andExpect(status().isNotFound());
     }
 
@@ -89,7 +89,7 @@ class BinControllerTest {
     void testCreateBin() throws Exception {
         when(binService.saveBin(any(Bin.class))).thenReturn(testBin);
 
-        mockMvc.perform(post("/bins")
+        mockMvc.perform(post("/api/bins")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(testBin)))
                 .andExpect(status().isOk())
@@ -103,7 +103,7 @@ class BinControllerTest {
     void testUpdateBin_success() throws Exception {
         when(binService.updateBin(eq("bin1"), any(Bin.class))).thenReturn(testBin);
 
-        mockMvc.perform(put("/bins/bin1")
+        mockMvc.perform(put("/api/bins/bin1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(testBin)))
                 .andExpect(status().isOk())
@@ -115,7 +115,7 @@ class BinControllerTest {
     void testUpdateBin_notFound() throws Exception {
         when(binService.updateBin(eq("bin999"), any(Bin.class))).thenReturn(null);
 
-        mockMvc.perform(put("/bins/bin999")
+        mockMvc.perform(put("/api/bins/bin999")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(testBin)))
                 .andExpect(status().isNotFound());
@@ -126,7 +126,7 @@ class BinControllerTest {
     void testDeleteBin() throws Exception {
         doNothing().when(binService).deleteBin("bin1");
 
-        mockMvc.perform(delete("/bins/bin1"))
+        mockMvc.perform(delete("/api/bins/bin1"))
                 .andExpect(status().isNoContent());
 
         verify(binService).deleteBin("bin1");
@@ -134,7 +134,7 @@ class BinControllerTest {
 
     @Test
     void testGetAllBins_unauthorized() throws Exception {
-        mockMvc.perform(get("/bins"))
+        mockMvc.perform(get("/api/bins"))
                 .andExpect(status().isForbidden());
     }
 }

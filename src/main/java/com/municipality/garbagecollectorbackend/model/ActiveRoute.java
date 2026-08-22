@@ -54,14 +54,14 @@ public class ActiveRoute {
     private int totalBins;
     private int binsCollected;
     
-    // ✅ NEW: Track all incidents that have been avoided during this route to prevent loops
+ // NEW: Track all incidents that have been avoided during this route to prevent loops
     private Set<String> avoidedIncidentIds = new HashSet<>();
     
-    // ✅ NEW: Track reroute attempts to detect infinite loops
+ // NEW: Track reroute attempts to detect infinite loops
     private int rerouteAttempts = 0;
     private static final int MAX_REROUTE_ATTEMPTS = 5;
     
-    // ✅ NEW: Track last reroute positions to detect loops
+ // NEW: Track last reroute positions to detect loops
     private List<RerouteHistoryEntry> rerouteHistory = new ArrayList<>();
     
     /**
@@ -162,18 +162,36 @@ public class ActiveRoute {
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    /**
-     * Get current latitude
-     */
     public double getCurrentLatitude() {
         return currentPosition != null ? currentPosition.getLatitude() : this.latitude;
     }
 
-    /**
-     * Get current longitude (from currentPosition)
-     */
     public double getCurrentLongitude() {
         return currentPosition != null ? currentPosition.getLongitude() : this.longitude;
     }
 
+    public double getCurrentLat() {
+        return getCurrentLatitude();
+    }
+
+    public double getCurrentLng() {
+        return getCurrentLongitude();
+    }
+
+    public int getCompletedBins() {
+        return binsCollected;
+    }
+
+    public void setCompletedBins(int count) {
+        this.binsCollected = count;
+    }
+
+    public int getProgressPercent() {
+        if (totalBins == 0) return 0;
+        return (int) ((binsCollected * 100.0) / totalBins);
+    }
+
+    public void setProgressPercent(int p) {
+        // Can be computed from binsCollected / totalBins
+    }
 }

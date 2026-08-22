@@ -38,7 +38,7 @@ public class SecurityConfig {
         return authBuilder.build();
     }
 
-    // ✅ CORS Configuration Bean
+ // CORS Configuration Bean
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
@@ -77,17 +77,22 @@ public class SecurityConfig {
         JwtAuthenticationFilter jwtAuthenticationFilter = new JwtAuthenticationFilter(userService, jwtUtil);
 
         http
-                // ✅ Enable CORS with our configuration
+ // Enable CORS with our configuration
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
-                // ✅ Disable CSRF (not needed for stateless JWT)
+ // Disable CSRF (not needed for stateless JWT)
                 .csrf(csrf -> csrf.disable())
 
-                // ✅ Configure authorization rules
+ // Configure authorization rules
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints
                         .requestMatchers("/auth/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/public/**").permitAll()
+                        .requestMatchers("/api/driver/**").permitAll()
+                        .requestMatchers("/api/disposal-sites/**").permitAll()
+                        .requestMatchers("/api/simulation/**").permitAll()
+                        .requestMatchers("/api/analytics/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         
@@ -110,7 +115,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
 
-                // ✅ Stateless session management
+ // Stateless session management
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 );

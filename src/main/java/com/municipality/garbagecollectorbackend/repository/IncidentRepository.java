@@ -10,7 +10,7 @@ import java.util.List;
 @Repository
 public interface IncidentRepository extends MongoRepository<Incident, String> {
 
-    List<Incident> findByStatus(IncidentStatus status);  // ✅ Changed parameter type
+ List<Incident> findByStatus(IncidentStatus status); // Changed parameter type
 
-    List<Incident> findByBin_IdAndStatus(String binId, IncidentStatus status);  // ✅ Changed parameter type
+ List<Incident> findByBin_IdAndStatus(String binId, IncidentStatus status); // Changed parameter type
 }

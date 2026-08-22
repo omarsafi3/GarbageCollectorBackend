@@ -30,7 +30,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
 
-        // ✅ Skip authentication for public endpoints
+ // Skip authentication for public endpoints
         String path = request.getRequestURI();
         if (path.startsWith("/auth/") || path.startsWith("/ws/") || path.equals("/error")) {
             filterChain.doFilter(request, response);
@@ -46,7 +46,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 username = jwtUtil.extractUsername(token);
             } catch (Exception e) {
-                System.err.println("❌ JWT extraction error: " + e.getMessage());
+ System.err.println(" JWT extraction error: " + e.getMessage());
             }
         }
 

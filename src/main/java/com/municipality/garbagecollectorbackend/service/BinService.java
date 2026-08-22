@@ -42,18 +42,17 @@ public class BinService {
         @CacheEvict(value = "binsByDepartment", allEntries = true)
     })
     public Bin saveBin(Bin bin) {
-        if (bin.getDepartment() != null && bin.getDepartment().getId() != null) {
-            String depId = bin.getDepartment().getId();
-            Department fullDep = departmentRepository.findById(depId)
-                    .orElseThrow(() -> new RuntimeException("Department not found"));
-            bin.setDepartment(fullDep);
+        if (bin.getDepartment() == null || bin.getDepartment().getId() == null || bin.getDepartment().getId().trim().isEmpty()) {
+            throw new IllegalArgumentException("Every bin must belong to a department (department is required)");
         }
+        String depId = bin.getDepartment().getId().trim();
+        Department fullDep = departmentRepository.findById(depId)
+                .orElseThrow(() -> new IllegalArgumentException("Department not found with ID: " + depId));
+        bin.setDepartment(fullDep);
+        
         bin.setLastUpdated(LocalDateTime.now());
         if (bin.getStatus() == null) {
             bin.setStatus("active");
-        }
-        if (bin.getFillLevel() == 0) {
-            bin.setFillLevel(0);
         }
         return binRepository.save(bin);
     }

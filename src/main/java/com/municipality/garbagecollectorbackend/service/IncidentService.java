@@ -48,7 +48,7 @@ public class IncidentService {
         incident.setCreatedAt(LocalDateTime.now());
 
         Incident saved = incidentRepository.save(incident);
-        log.info("🚨 Road block reported at ({}, {}) with radius {}km", latitude, longitude, radiusKm);
+ log.info(" Road block reported at ({}, {}) with radius {}km", latitude, longitude, radiusKm);
 
         publisher.publishIncidentUpdate(saved);
         rerouteAffectedVehicles(saved);
@@ -58,11 +58,11 @@ public class IncidentService {
 
     private void rerouteAffectedVehicles(Incident incident) {
         List<ActiveRoute> activeRoutes = routeExecutionService.getAllActiveRoutes();
-        log.info("🔍 Checking {} active routes for incident impact", activeRoutes.size());
+ log.info(" Checking {} active routes for incident impact", activeRoutes.size());
 
         for (ActiveRoute route : activeRoutes) {
             if (isRouteAffectedByIncident(route, incident)) {
-                log.warn("⚠️ Route {} is affected by incident - triggering reroute", route.getVehicleId());
+ log.warn(" Route {} is affected by incident - triggering reroute", route.getVehicleId());
                 rerouteVehicle(route, incident);
             }
         }
@@ -80,7 +80,7 @@ public class IncidentService {
                     incident.getLatitude(), incident.getLongitude()
             );
             if (distance <= incident.getRadiusKm()) {
-                log.info("📍 Waypoint at ({}, {}) is within incident radius ({}km away)",
+ log.info(" Waypoint at ({}, {}) is within incident radius ({}km away)",
                         point.getLatitude(), point.getLongitude(), distance);
                 return true;
             }
@@ -92,36 +92,42 @@ public class IncidentService {
         try {
             List<String> remainingBinIds = route.getRemainingBinIds();
             if (remainingBinIds == null || remainingBinIds.isEmpty()) {
-                log.info("✅ No remaining bins - vehicle {} will return to department", route.getVehicleId());
+                log.info("No remaining bins - vehicle {} will return to department", route.getVehicleId());
                 return;
             }
 
-            log.info("🔄 Rerouting vehicle {} with {} remaining bins",
+            log.info("Rerouting vehicle {} with {} remaining bins",
                     route.getVehicleId(), remainingBinIds.size());
-
-            List<String> safeBinIds = filterSafeBins(remainingBinIds, incident);
-
-            if (safeBinIds.isEmpty()) {
-                log.warn("⚠️ All remaining bins are in incident area - completing route early");
-                routeExecutionService.completeRoute(route.getVehicleId());
-                return;
-            }
 
             List<Incident> incidentsToAvoid = getActiveIncidents().stream()
                     .filter(i -> i.getType() == IncidentType.ROAD_BLOCK)
                     .filter(i -> i.getLatitude() != null && i.getLongitude() != null)
                     .collect(Collectors.toList());
 
+            List<String> safeBinIds = filterSafeBins(remainingBinIds, incident);
+
             String vehicleId = route.getVehicleId();
             String departmentId = route.getDepartmentId();
 
-            RoutePoint currentPosition;
-            if (route.getRemainingRoutePoints() != null && !route.getRemainingRoutePoints().isEmpty()) {
+            RoutePoint currentPosition = route.getCurrentPosition();
+            if (currentPosition == null && route.getRemainingRoutePoints() != null && !route.getRemainingRoutePoints().isEmpty()) {
                 currentPosition = route.getRemainingRoutePoints().get(0);
-            } else {
+            }
+            if (currentPosition == null && !safeBinIds.isEmpty()) {
                 String firstBinId = safeBinIds.get(0);
                 Bin firstBin = binService.getBinById(firstBinId);
-                currentPosition = new RoutePoint(firstBin.getLatitude(), firstBin.getLongitude(), 0);
+                if (firstBin != null) {
+                    currentPosition = new RoutePoint(firstBin.getLatitude(), firstBin.getLongitude(), 0);
+                }
+            }
+
+            if (currentPosition == null) {
+                log.warn("Cannot determine position for vehicle {}, cannot reroute", vehicleId);
+                return;
+            }
+
+            if (safeBinIds.isEmpty()) {
+                log.warn("All remaining bins are in incident area - generating safe return route to department");
             }
 
             double currentLat = currentPosition.getLatitude();
@@ -138,10 +144,10 @@ public class IncidentService {
 
             routeExecutionService.updateRoute(vehicleId, newRoute);
 
-            log.info("✅ Vehicle {} successfully rerouted", vehicleId);
+            log.info("Vehicle {} successfully rerouted", vehicleId);
 
         } catch (Exception e) {
-            log.error("❌ Failed to reroute vehicle {}: {}", route.getVehicleId(), e.getMessage(), e);
+            log.error("Failed to reroute vehicle {}: {}", route.getVehicleId(), e.getMessage(), e);
         }
     }
 
@@ -149,15 +155,17 @@ public class IncidentService {
         return binIds.stream()
                 .filter(binId -> {
                     Bin bin = binService.getBinById(binId);
-                    if (bin == null) return true;
+                    if (bin == null) return false;
+                    if (incident.getLatitude() == null || incident.getLongitude() == null) return true;
 
                     double distance = calculateDistance(
                             bin.getLatitude(), bin.getLongitude(),
                             incident.getLatitude(), incident.getLongitude()
                     );
-                    boolean isSafe = distance > incident.getRadiusKm();
+                    double safeRadius = incident.getRadiusKm() != null ? incident.getRadiusKm() : 0.5;
+                    boolean isSafe = distance > safeRadius;
                     if (!isSafe) {
-                        log.info("🚫 Bin {} is within incident area ({}km away)", binId, distance);
+                        log.info("Bin {} is within incident area ({} km away)", binId, distance);
                     }
                     return isSafe;
                 })

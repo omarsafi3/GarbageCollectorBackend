@@ -47,20 +47,20 @@ public class Employee implements Serializable {
 
     private Department department;
 
-    // ✅ NEW: Track employee status
+ // NEW: Track employee status
     @Indexed
     private EmployeeStatus status; // AVAILABLE, ASSIGNED, IN_ROUTE
 
-    // ✅ NEW: Track which vehicle employee is assigned to
+ // NEW: Track which vehicle employee is assigned to
     @Indexed
     private String assignedVehicleId;
 
-    // ✅ Helper method to get full name
+ // Helper method to get full name
     public String getFullName() {
         return firstName + " " + lastName;
     }
 
-    // ✅ Helper method to check if employee can be assigned
+ // Helper method to check if employee can be assigned
     public boolean canBeAssigned() {
         return available && (status == null || status == EmployeeStatus.AVAILABLE);
     }

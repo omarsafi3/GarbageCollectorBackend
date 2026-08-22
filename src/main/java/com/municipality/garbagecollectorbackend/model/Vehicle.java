@@ -26,7 +26,8 @@ public class Vehicle implements Serializable {
         AVAILABLE,      // Ready for new route
         IN_ROUTE,       // Currently collecting bins
         RETURNING,      // Going back to depot
-        UNLOADING       // Emptying at depot
+        UNLOADING,      // Emptying at depot
+        MAINTENANCE     // Under maintenance or breakdown
     }
 
 

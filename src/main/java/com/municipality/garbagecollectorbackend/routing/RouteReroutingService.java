@@ -14,9 +14,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import com.municipality.garbagecollectorbackend.service.VehicleUpdatePublisher;
+import org.springframework.beans.factory.annotation.Value;
 
 /**
- * ✅ FIXED: Prevents infinite reroute loops with:
+ * FIXED: Prevents infinite reroute loops with:
  * 1. Reroute cooldown (30 seconds)
  * 2. Skip rerouted routes check
  * 3. Larger detour radius (to avoid near-incident areas)
@@ -26,11 +29,14 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class RouteReroutingService {
 
+    @Value("${osrm.server.url:http://localhost:5000}")
+    private String osrmServerUrl;
+
     @Autowired
     private ActiveRouteRepository activeRouteRepository;
 
     @Autowired
-    DepartmentService departmentService;
+    private DepartmentService departmentService;
 
     @Autowired
     private IncidentService incidentService;
@@ -38,10 +44,16 @@ public class RouteReroutingService {
     @Autowired
     private RouteExecutionService routeExecutionService;
 
+    @Autowired
+    private RouteOptimizationService routeOptimizationService;
+
+    @Autowired
+    private VehicleUpdatePublisher vehicleUpdatePublisher;
+
     private static final double INCIDENT_AVOID_RADIUS_KM = 0.15; // 150 meters
     private static final double REROUTE_TRIGGER_DISTANCE_KM = 3.0; // trigger when within 3km
 
-    // ✅ NEW: Reroute cooldown to prevent infinite loops
+ // NEW: Reroute cooldown to prevent infinite loops
     private static final long REROUTE_COOLDOWN_MS = 30000; // 30 seconds
     private final Map<String, Long> lastRerouteTime = new ConcurrentHashMap<>();
 
@@ -60,16 +72,16 @@ public class RouteReroutingService {
         }
 
         for (ActiveRoute route : activeRoutes) {
-            // ✅ FIX 1: Skip routes that are already rerouted
+ // FIX 1: Skip routes that are already rerouted
             if (route.isRerouted()) {
-                log.debug("⏭️ Skipping already-rerouted route for vehicle {}", route.getVehicleId());
+ log.debug(" Skipping already-rerouted route for vehicle {}", route.getVehicleId());
                 continue;
             }
 
-            // ✅ FIX 2: Check cooldown - don't reroute if we did it recently
+ // FIX 2: Check cooldown - don't reroute if we did it recently
             Long lastReroute = lastRerouteTime.get(route.getVehicleId());
             if (lastReroute != null && System.currentTimeMillis() - lastReroute < REROUTE_COOLDOWN_MS) {
-                log.debug("⏳ Vehicle {} in cooldown (rerouted {} ms ago)",
+ log.debug(" Vehicle {} in cooldown (rerouted {} ms ago)",
                         route.getVehicleId(),
                         System.currentTimeMillis() - lastReroute);
                 continue;
@@ -85,9 +97,9 @@ public class RouteReroutingService {
                     ) <= REROUTE_TRIGGER_DISTANCE_KM);
 
             if (nearIncident) {
-                log.warn("🚨 Vehicle {} is near an incident, rerouting...", route.getVehicleId());
+ log.warn(" Vehicle {} is near an incident, rerouting...", route.getVehicleId());
                 rerouteVehicle(route, roadBlocks);
-                // ✅ Record the reroute time immediately
+ // Record the reroute time immediately
                 lastRerouteTime.put(route.getVehicleId(), System.currentTimeMillis());
             }
         }
@@ -106,13 +118,13 @@ public class RouteReroutingService {
             }
 
             if (uncollectedStops.isEmpty()) {
-                log.info("✅ No remaining uncollected bins for vehicle {}", route.getVehicleId());
+ log.info(" No remaining uncollected bins for vehicle {}", route.getVehicleId());
                 return;
             }
 
             RoutePoint currentPos = route.getCurrentPosition();
             if (currentPos == null) {
-                log.warn("⚠️ Current position unknown for vehicle {}, cannot reroute", route.getVehicleId());
+ log.warn(" Current position unknown for vehicle {}, cannot reroute", route.getVehicleId());
                 return;
             }
 
@@ -120,25 +132,35 @@ public class RouteReroutingService {
             Department dept = departmentService.getDepartmentById(departmentId)
                     .orElseThrow(() -> new RuntimeException("Department not found: " + departmentId));
 
-            // Build new polyline avoiding incidents
-            List<RoutePoint> newPolyline = buildReroutedPolyline(currentPos, uncollectedStops, incidents, departmentId);
+            // Build new polyline avoiding incidents using RouteOptimizationService
+            List<String> uncollectedBinIds = uncollectedStops.stream()
+                    .map(BinStop::getBinId)
+                    .collect(Collectors.toList());
 
-            if (newPolyline.isEmpty()) {
-                log.error("❌ Reroute generated empty polyline for vehicle {}", route.getVehicleId());
+            RouteResponse rerouteResponse = routeOptimizationService.generateRerouteWithAvoidance(
+                    route.getVehicleId(),
+                    currentPos.getLatitude(),
+                    currentPos.getLongitude(),
+                    uncollectedBinIds,
+                    departmentId,
+                    incidents
+            );
+
+            List<RoutePoint> newPolyline = rerouteResponse.getPolyline();
+
+            if (newPolyline == null || newPolyline.isEmpty()) {
+                log.error("Reroute generated empty polyline for vehicle {}", route.getVehicleId());
                 return;
             }
 
-            // ✅ FIX 3: Don't validate intersection with last polyline - fresh detour is valid
-            // Just use the new polyline directly
-
-            // Update route but keep already collected bins removed
+            int previousBinsCollected = route.getBinsCollected();
             route.setFullRoutePolyline(newPolyline);
             route.setAnimationProgress(0.0);
             route.setCurrentPosition(newPolyline.get(0));
-            route.setRerouted(true);  // ✅ CRITICAL: Mark as rerouted to prevent repeated checks
+            route.setRerouted(true);
             route.setTotalDistanceKm(calculateTotalDistance(newPolyline));
 
-            // Rebuild BinStops from uncollectedStops (preserve statuses if present)
+            // Rebuild BinStops from uncollectedStops
             List<BinStop> newBinStops = new ArrayList<>();
             for (int i = 0; i < uncollectedStops.size(); i++) {
                 BinStop s = uncollectedStops.get(i);
@@ -149,15 +171,17 @@ public class RouteReroutingService {
             }
             route.setBinStops(newBinStops);
             route.setCurrentBinIndex(0);
-            route.setTotalBins(newBinStops.size());
+            route.setBinsCollected(previousBinsCollected);
+            route.setTotalBins(previousBinsCollected + newBinStops.size());
 
             activeRouteRepository.save(route);
+            vehicleUpdatePublisher.publishRouteUpdate(route.getVehicleId(), rerouteResponse);
 
-            log.info("✅ Vehicle {} rerouted with {} points and {} stops (cooldown: 30s)",
+            log.info("Vehicle {} rerouted with {} points and {} stops (cooldown: 30s)",
                     route.getVehicleId(), newPolyline.size(), newBinStops.size());
 
         } catch (Exception e) {
-            log.error("❌ Failed to reroute vehicle {}: {}", route.getVehicleId(), e.getMessage(), e);
+            log.error("Failed to reroute vehicle {}: {}", route.getVehicleId(), e.getMessage(), e);
         }
     }
 
@@ -187,7 +211,6 @@ public class RouteReroutingService {
             com.municipality.garbagecollectorbackend.model.Location from = stops.get(i);
             com.municipality.garbagecollectorbackend.model.Location to = stops.get(i + 1);
 
-            // If segment intersects any incident, add detour waypoint
             Incident intersecting = null;
             for (Incident inc : incidents) {
                 if (inc.getLatitude() == null || inc.getLongitude() == null) continue;
@@ -205,10 +228,7 @@ public class RouteReroutingService {
                 double bearing = calculateBearing(from.getLatitude(), from.getLongitude(),
                         to.getLatitude(), to.getLongitude());
 
-                // ✅ FIX 4: INCREASE DETOUR DISTANCE
-                // 0.15 km * 10 = 1.5 km away from incident center
-                // This ensures the detour is FAR enough to not trigger reroute again
-                double detourDistanceKm = INCIDENT_AVOID_RADIUS_KM * 10.0;  // 1.5 km
+                double detourDistanceKm = INCIDENT_AVOID_RADIUS_KM * 10.0; // 1.5 km
 
                 double[] detourRight = getOffsetCoordinates(
                         intersecting.getLatitude(), intersecting.getLongitude(),
@@ -217,7 +237,7 @@ public class RouteReroutingService {
                 waypointList.add(new com.municipality.garbagecollectorbackend.model.Location(
                         detourRight[0], detourRight[1]));
 
-                log.info("🚧 Added detour waypoint at ({}, {}) for segment {} (distance: {:.2f} km)",
+                log.info("Added detour waypoint at ({}, {}) for segment {} (distance: {:.2f} km)",
                         detourRight[0], detourRight[1], i, detourDistanceKm);
             }
 
@@ -226,7 +246,6 @@ public class RouteReroutingService {
             List<RoutePoint> segment = fetchOSRMPolylineWithWaypoints(waypointList, seq);
 
             if (segment.isEmpty()) {
-                // fallback: straight line
                 segment.add(new RoutePoint(from.getLatitude(), from.getLongitude(), seq++));
                 segment.add(new RoutePoint(to.getLatitude(), to.getLongitude(), seq++));
             }
@@ -263,18 +282,25 @@ public class RouteReroutingService {
             StringBuilder sb = new StringBuilder();
             for (com.municipality.garbagecollectorbackend.model.Location wp : waypoints) {
                 if (sb.length() > 0) sb.append(";");
-                sb.append(wp.getLongitude()).append(",").append(wp.getLatitude());
+                sb.append(String.format(Locale.US, "%.6f,%.6f", wp.getLongitude(), wp.getLatitude()));
             }
 
+            String baseUrl = (osrmServerUrl != null && !osrmServerUrl.isEmpty()) ? osrmServerUrl : "https://router.project-osrm.org";
             String url = String.format(
-                    "http://localhost:5000/route/v1/driving/%s?overview=full&geometries=geojson",
+                    "%s/route/v1/driving/%s?overview=full&geometries=geojson",
+                    baseUrl,
                     sb.toString()
             );
 
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.set("User-Agent", "GarbageCollectorBackend/1.0");
+            org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>(headers);
+
             RestTemplate restTemplate = new RestTemplate();
-            String response = restTemplate.getForObject(url, String.class);
+            org.springframework.http.ResponseEntity<String> response = restTemplate.exchange(
+                    url, org.springframework.http.HttpMethod.GET, entity, String.class);
             ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(response);
+            JsonNode root = mapper.readTree(response.getBody());
 
             if ("Ok".equalsIgnoreCase(root.path("code").asText())) {
                 JsonNode coords = root.path("routes").get(0).path("geometry").path("coordinates");
@@ -285,11 +311,11 @@ public class RouteReroutingService {
                     points.add(new RoutePoint(lat, lng, seq++));
                 }
             } else {
-                log.warn("⚠️ OSRM responded with code={} message={}",
+                log.warn("OSRM responded with code={} message={}",
                         root.path("code").asText(), root.path("message").asText());
             }
         } catch (Exception e) {
-            log.error("❌ OSRM fetch failed: {}", e.getMessage());
+            log.error("OSRM fetch failed: {}", e.getMessage());
         }
         return points;
     }

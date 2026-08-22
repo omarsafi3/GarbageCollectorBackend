@@ -66,12 +66,11 @@ public class RouteOptimizationService {
     private final Map<String, PreGeneratedRoute> preGeneratedRoutes = new ConcurrentHashMap<>();
 
     private static final double EPS = 1e-6;
-    private static final String DEFAULT_DEPARTMENT_ID = "6920266d0b737026e2496c54";
 
     public List<RouteBin> getOptimizedRoute(String departmentId, String vehicleId) {
         PreGeneratedRoute preGenRoute = preGeneratedRoutes.get(vehicleId);
         if (preGenRoute != null && !preGenRoute.isStale()) {
-            log.info("ðŸ“¦ Using pre-generated route for vehicle {} (age: {} minutes)",
+            log.info("Using pre-generated route for vehicle {} (age: {} minutes)",
                     vehicleId, preGenRoute.getAgeInMinutes());
             return preGenRoute.getRouteBins();
         }
@@ -167,15 +166,15 @@ public class RouteOptimizationService {
                 List<String> waypoints = new ArrayList<>();
                 waypoints.add(String.format(Locale.US, "%.6f,%.6f", currentLng, currentLat));
 
-                // ✅ IMPROVED: Find ALL incidents blocking this segment
+ // IMPROVED: Find ALL incidents blocking this segment
                 List<Incident> blockingIncidents = findBlockingIncidents(
                         currentLat, currentLng, bin.getLatitude(), bin.getLongitude(), incidents
                 );
                 
                 if (!blockingIncidents.isEmpty()) {
-                    log.info("🚧 Found {} incidents blocking path to bin {}", blockingIncidents.size(), bin.getId());
+ log.info(" Found {} incidents blocking path to bin {}", blockingIncidents.size(), bin.getId());
                     
-                    // ✅ IMPROVED: Find the best detour that avoids ALL incidents
+ // IMPROVED: Find the best detour that avoids ALL incidents
                     List<double[]> detourWaypoints = findBestDetourWaypoints(
                             currentLat, currentLng,
                             bin.getLatitude(), bin.getLongitude(),
@@ -186,19 +185,25 @@ public class RouteOptimizationService {
                     // Add all detour waypoints
                     for (double[] detour : detourWaypoints) {
                         waypoints.add(String.format(Locale.US, "%.6f,%.6f", detour[1], detour[0]));
-                        log.info("🚧 Adding detour waypoint at ({}, {})", detour[0], detour[1]);
+                        log.info("Adding detour waypoint at ({}, {})", detour[0], detour[1]);
                     }
                 }
 
                 waypoints.add(String.format(Locale.US, "%.6f,%.6f", bin.getLongitude(), bin.getLatitude()));
 
                 String waypointsStr = String.join(";", waypoints);
-                String url = String.format("%s/route/v1/driving/%s?overview=full&geometries=geojson", osrmServerUrl, waypointsStr);
+                String baseUrl = (osrmServerUrl != null && !osrmServerUrl.isEmpty()) ? osrmServerUrl : "https://router.project-osrm.org";
+                String url = String.format("%s/route/v1/driving/%s?overview=full&geometries=geojson", baseUrl, waypointsStr);
+
+                org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+                headers.set("User-Agent", "GarbageCollectorBackend/1.0");
+                org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>(headers);
 
                 RestTemplate restTemplate = new RestTemplate();
-                String response = restTemplate.getForObject(url, String.class);
+                org.springframework.http.ResponseEntity<String> response = restTemplate.exchange(
+                        url, org.springframework.http.HttpMethod.GET, entity, String.class);
                 ObjectMapper mapper = new ObjectMapper();
-                JsonNode root = mapper.readTree(response);
+                JsonNode root = mapper.readTree(response.getBody());
 
                 if ("Ok".equalsIgnoreCase(root.path("code").asText())) {
                     JsonNode coordinates = root.path("routes").get(0).path("geometry").path("coordinates");
@@ -222,14 +227,14 @@ public class RouteOptimizationService {
                 currentLng = bin.getLongitude();
             }
 
-            // âœ… CRITICAL FIX: 2) Add return-to-department segment with incident avoidance
-            log.info("ðŸ”„ Adding return-to-department segment from ({}, {}) to ({}, {})",
+            // CRITICAL FIX: 2) Add return-to-department segment with incident avoidance
+            log.info("Adding return-to-department segment from ({}, {}) to ({}, {})",
                     currentLat, currentLng, department.getLatitude(), department.getLongitude());
 
             List<String> returnWaypoints = new ArrayList<>();
             returnWaypoints.add(String.format(Locale.US, "%.6f,%.6f", currentLng, currentLat));
 
-            // ✅ IMPROVED: Find ALL incidents blocking return path
+            // Find ALL incidents blocking return path
             List<Incident> blockingReturnIncidents = findBlockingIncidents(
                     currentLat, currentLng,
                     department.getLatitude(), department.getLongitude(),
@@ -237,7 +242,7 @@ public class RouteOptimizationService {
             );
             
             if (!blockingReturnIncidents.isEmpty()) {
-                log.info("🚧 Found {} incidents blocking return to department", blockingReturnIncidents.size());
+                log.info("Found {} incidents blocking return to department", blockingReturnIncidents.size());
                 
                 List<double[]> detourWaypoints = findBestDetourWaypoints(
                         currentLat, currentLng,
@@ -248,7 +253,7 @@ public class RouteOptimizationService {
                 
                 for (double[] detour : detourWaypoints) {
                     returnWaypoints.add(String.format(Locale.US, "%.6f,%.6f", detour[1], detour[0]));
-                    log.info("🚧 Adding return detour waypoint at ({}, {})", detour[0], detour[1]);
+                    log.info("Adding return detour waypoint at ({}, {})", detour[0], detour[1]);
                 }
             }
 
@@ -256,12 +261,18 @@ public class RouteOptimizationService {
                     department.getLongitude(), department.getLatitude()));
 
             String returnWaypointsStr = String.join(";", returnWaypoints);
-            String returnUrl = String.format("%s/route/v1/driving/%s?overview=full&geometries=geojson", osrmServerUrl, returnWaypointsStr);
+            String returnBaseUrl = (osrmServerUrl != null && !osrmServerUrl.isEmpty()) ? osrmServerUrl : "https://router.project-osrm.org";
+            String returnUrl = String.format("%s/route/v1/driving/%s?overview=full&geometries=geojson", returnBaseUrl, returnWaypointsStr);
 
-            RestTemplate restTemplate = new RestTemplate();
-            String returnResponse = restTemplate.getForObject(returnUrl, String.class);
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode returnRoot = mapper.readTree(returnResponse);
+            org.springframework.http.HttpHeaders returnHeaders = new org.springframework.http.HttpHeaders();
+            returnHeaders.set("User-Agent", "GarbageCollectorBackend/1.0");
+            org.springframework.http.HttpEntity<String> returnEntity = new org.springframework.http.HttpEntity<>(returnHeaders);
+
+            RestTemplate returnRestTemplate = new RestTemplate();
+            org.springframework.http.ResponseEntity<String> returnResponse = returnRestTemplate.exchange(
+                    returnUrl, org.springframework.http.HttpMethod.GET, returnEntity, String.class);
+            ObjectMapper returnMapper = new ObjectMapper();
+            JsonNode returnRoot = returnMapper.readTree(returnResponse.getBody());
 
             if ("Ok".equalsIgnoreCase(returnRoot.path("code").asText())) {
                 JsonNode returnCoordinates = returnRoot.path("routes").get(0).path("geometry").path("coordinates");
@@ -276,12 +287,12 @@ public class RouteOptimizationService {
                     }
                     polyline.add(new RoutePoint(lat, lng, seq++));
                 }
-                log.info("âœ… Return segment added: {} points", seq - polyline.size());
+                log.info("Return segment added: {} points", seq - polyline.size());
             } else {
                 // Fallback: straight line to department
                 polyline.add(new RoutePoint(department.getLatitude(),
                         department.getLongitude(), polyline.size()));
-                log.warn("âš ï¸ Return path OSRM failed, using fallback");
+                log.warn("Return path OSRM failed, using fallback");
             }
 
         } catch (Exception e) {
@@ -392,7 +403,7 @@ public class RouteOptimizationService {
                 }
                 
                 if (validDetour && !candidateWaypoints.isEmpty()) {
-                    log.info("✅ Found valid detour with bearing offset {} and distance {} km", offset, safeDistanceKm);
+ log.info(" Found valid detour with bearing offset {} and distance {} km", offset, safeDistanceKm);
                     return candidateWaypoints;
                 }
             }
@@ -406,7 +417,7 @@ public class RouteOptimizationService {
             double fallbackDistance = Math.max(first.getRadiusKm() * 3, 0.5); // At least 3x the radius or 500m
             double[] detour = getOffsetCoordinates(first.getLatitude(), first.getLongitude(), fallbackDistance, detourBearing);
             detourWaypoints.add(detour);
-            log.warn("⚠️ Using fallback detour with distance {} km - may not avoid all incidents", fallbackDistance);
+ log.warn(" Using fallback detour with distance {} km - may not avoid all incidents", fallbackDistance);
         }
         
         return detourWaypoints;
@@ -482,8 +493,11 @@ public class RouteOptimizationService {
 
     @Scheduled(fixedRate = 900000)
     public void autoGenerateRoutes() {
-        log.info("ðŸ”„ Auto-generating optimized routes for all vehicles...");
-        generateRoutesForDepartment(DEFAULT_DEPARTMENT_ID);
+        log.info("Auto-generating optimized routes for all vehicles...");
+        List<Department> departments = departmentService.getAllDepartments();
+        for (Department dept : departments) {
+            generateRoutesForDepartment(dept.getId());
+        }
     }
 
     public void generateRoutesForDepartment(String departmentId) {
@@ -498,17 +512,17 @@ public class RouteOptimizationService {
                     .collect(Collectors.toList());
 
             if (availableVehicles.isEmpty()) {
-                log.warn("âš ï¸ No available vehicles for department {}", departmentId);
+                log.warn("⚠️ No available vehicles for department {}", departmentId);
                 return;
             }
 
-            List<Bin> allBins = binService.getAllBins();
+            List<Bin> allBins = binService.getBinsByDepartmentId(departmentId);
             List<Bin> prioritizedBins = allBins.stream()
                     .filter(b -> b.getFillLevel() >= 80)
                     .collect(Collectors.toList());
 
             if (prioritizedBins.isEmpty()) {
-                log.info("â„¹ï¸ No bins â‰¥80% for department {}", departmentId);
+                log.info("ℹ️ No bins ≥80% for department {}", departmentId);
                 return;
             }
 
@@ -517,7 +531,7 @@ public class RouteOptimizationService {
                     .map(Bin::getId)
                     .collect(Collectors.toSet());
 
-            log.info("ðŸ“Š Generating routes: {} vehicles, {} bins (including {} overfilled)",
+            log.info("📊 Generating routes: {} vehicles, {} bins (including {} overfilled)",
                     availableVehicles.size(), prioritizedBins.size(), overfillBinIds.size());
 
             List<VehicleRouteResult> results = optimizeDepartmentRoutes(
@@ -701,22 +715,33 @@ public class RouteOptimizationService {
 
         log.debug("Best solution cost: {}", best.getCost());
         log.debug("Routes count: {}", best.getRoutes().size());
-        log.debug("Unassigned jobs: {}", best.getUnassignedJobs().stream().map(Job::getId).collect(Collectors.toList()));
 
         List<VehicleRouteResult> results = new ArrayList<>();
         for (VehicleRoute vr : best.getRoutes()) {
             String vehicleId = vr.getVehicle().getId();
             List<String> routeBinIds = new ArrayList<>();
             for (TourActivity act : vr.getActivities()) {
-                double actLat = act.getLocation().getCoordinate().getX();
-                double actLon = act.getLocation().getCoordinate().getY();
-                Bin matched = bins.stream()
-                        .filter(b -> Math.abs(b.getLatitude() - actLat) < EPS
-                                && Math.abs(b.getLongitude() - actLon) < EPS)
-                        .findFirst()
-                        .orElse(null);
-                if (matched != null) {
-                    routeBinIds.add(matched.getId());
+                String matchedBinId = null;
+                if (act.getName() != null && !act.getName().isEmpty()) {
+                    String candidateId = act.getName();
+                    if (bins.stream().anyMatch(b -> b.getId().equals(candidateId))) {
+                        matchedBinId = candidateId;
+                    }
+                }
+                if (matchedBinId == null && act.getLocation() != null && act.getLocation().getCoordinate() != null) {
+                    double actLat = act.getLocation().getCoordinate().getX();
+                    double actLon = act.getLocation().getCoordinate().getY();
+                    Bin matched = bins.stream()
+                            .filter(b -> Math.abs(b.getLatitude() - actLat) < EPS
+                                    && Math.abs(b.getLongitude() - actLon) < EPS)
+                            .findFirst()
+                            .orElse(null);
+                    if (matched != null) {
+                        matchedBinId = matched.getId();
+                    }
+                }
+                if (matchedBinId != null) {
+                    routeBinIds.add(matchedBinId);
                 }
             }
             results.add(new VehicleRouteResult(vehicleId, routeBinIds));
@@ -750,57 +775,42 @@ public class RouteOptimizationService {
         for (int i = 0; i < stops.size() - 1; i++) {
             com.municipality.garbagecollectorbackend.model.Location from = stops.get(i);
             com.municipality.garbagecollectorbackend.model.Location to = stops.get(i + 1);
-            boolean segmentBlocked = false;
-            Incident blockingIncident = null;
-            for (Incident incident : incidents) {
-                if (incident.getLatitude() == null || incident.getLongitude() == null) {
-                    continue;
-                }
-                double[] closestPoint = getClosestPointOnSegment(
-                        from.getLatitude(), from.getLongitude(),
-                        to.getLatitude(), to.getLongitude(),
-                        incident.getLatitude(), incident.getLongitude()
-                );
-                double distance = calculateDistanceMeters(
-                        incident.getLatitude(), incident.getLongitude(),
-                        closestPoint[0], closestPoint[1]
-                );
-                // Use actual incident radius with small buffer for safety
-                double effectiveRadius = (incident.getRadiusKm() * 1000.0) + 20.0; // radius + 20m buffer
-                if (distance <= effectiveRadius) {
-                    segmentBlocked = true;
-                    blockingIncident = incident;
-                    log.info("ðŸš§ Initial route: Segment blocked by incident at ({}, {})",
-                            incident.getLatitude(), incident.getLongitude());
-                    break;
-                }
-            }
+            
+            List<Incident> blockingIncidents = findBlockingIncidents(
+                    from.getLatitude(), from.getLongitude(),
+                    to.getLatitude(), to.getLongitude(),
+                    incidents
+            );
 
             List<RoutePoint> segment;
-            if (segmentBlocked && blockingIncident != null) {
-                double bearing = calculateBearing(
+            if (!blockingIncidents.isEmpty()) {
+                log.info("Initial route: Segment {} blocked by {} incident(s)", i, blockingIncidents.size());
+                List<double[]> detourWaypoints = findBestDetourWaypoints(
                         from.getLatitude(), from.getLongitude(),
-                        to.getLatitude(), to.getLongitude()
+                        to.getLatitude(), to.getLongitude(),
+                        blockingIncidents,
+                        incidents
                 );
-                double detourBearing = bearing + 90;
-                double safeDistance = blockingIncident.getRadiusKm() * 3.5;
-                double[] detourCoords = getOffsetCoordinates(
-                        blockingIncident.getLatitude(),
-                        blockingIncident.getLongitude(),
-                        safeDistance,
-                        detourBearing
-                );
-                com.municipality.garbagecollectorbackend.model.Location detourLocation =
-                        new com.municipality.garbagecollectorbackend.model.Location(detourCoords[0], detourCoords[1]);
-                List<RoutePoint> segmentToDetour = fetchOSRMSegment(from, detourLocation, sequenceNumber);
-                List<RoutePoint> detourToDest = fetchOSRMSegment(detourLocation, to,
-                        sequenceNumber + segmentToDetour.size());
-                segment = new ArrayList<>(segmentToDetour);
-                if (detourToDest.size() > 1) {
-                    segment.addAll(detourToDest.subList(1, detourToDest.size()));
+
+                List<com.municipality.garbagecollectorbackend.model.Location> waypointChain = new ArrayList<>();
+                waypointChain.add(from);
+                for (double[] d : detourWaypoints) {
+                    waypointChain.add(new com.municipality.garbagecollectorbackend.model.Location(d[0], d[1]));
                 }
-                log.info("âœ… Initial route: Added detour waypoint at ({}, {})",
-                        detourCoords[0], detourCoords[1]);
+                waypointChain.add(to);
+
+                segment = new ArrayList<>();
+                int currentSeq = sequenceNumber;
+                for (int w = 0; w < waypointChain.size() - 1; w++) {
+                    List<RoutePoint> subSegment = fetchOSRMSegment(waypointChain.get(w), waypointChain.get(w + 1), currentSeq);
+                    if (w == 0) {
+                        segment.addAll(subSegment);
+                    } else if (subSegment.size() > 1) {
+                        segment.addAll(subSegment.subList(1, subSegment.size()));
+                    }
+                    currentSeq += subSegment.size();
+                }
+                log.info("Initial route: Added {} detour waypoints for segment {}", detourWaypoints.size(), i);
             } else {
                 segment = fetchOSRMSegment(from, to, sequenceNumber);
             }
@@ -814,7 +824,7 @@ public class RouteOptimizationService {
             sequenceNumber += segment.size();
         }
 
-        log.info("âœ… Built polyline with {} points for route (avoided {} incidents)",
+        log.info("Built polyline with {} points for route (avoided {} incidents)",
                 polyline.size(), incidents.size());
         return polyline;
     }
@@ -831,17 +841,24 @@ public class RouteOptimizationService {
             int startSequence) {
         List<RoutePoint> points = new ArrayList<>();
         try {
+            String baseUrl = (osrmServerUrl != null && !osrmServerUrl.isEmpty()) ? osrmServerUrl : "https://router.project-osrm.org";
             String url = String.format(
-                    "%s/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson",
-                    osrmServerUrl,
+                    Locale.US,
+                    "%s/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson",
+                    baseUrl,
                     from.getLongitude(), from.getLatitude(),
                     to.getLongitude(), to.getLatitude()
             );
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.set("User-Agent", "GarbageCollectorBackend/1.0");
+            org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>(headers);
+
             RestTemplate restTemplate = new RestTemplate();
-            String response = restTemplate.getForObject(url, String.class);
+            org.springframework.http.ResponseEntity<String> response = restTemplate.exchange(
+                    url, org.springframework.http.HttpMethod.GET, entity, String.class);
             ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(response);
-            if ("Ok".equals(root.path("code").asText())) {
+            JsonNode root = mapper.readTree(response.getBody());
+            if ("Ok".equalsIgnoreCase(root.path("code").asText())) {
                 JsonNode coordinates = root.path("routes").get(0).path("geometry").path("coordinates");
                 int seq = startSequence;
                 for (JsonNode coord : coordinates) {
@@ -854,7 +871,7 @@ public class RouteOptimizationService {
                 points.add(new RoutePoint(to.getLatitude(), to.getLongitude(), startSequence + 1));
             }
         } catch (Exception e) {
-            log.error("âŒ Failed to fetch OSRM: {}", e.getMessage());
+            log.error("Failed to fetch OSRM: {}", e.getMessage());
             points.add(new RoutePoint(from.getLatitude(), from.getLongitude(), startSequence));
             points.add(new RoutePoint(to.getLatitude(), to.getLongitude(), startSequence + 1));
         }
@@ -866,7 +883,7 @@ public class RouteOptimizationService {
         try {
             List<Department> departments = departmentService.getAllDepartments();
             for (Department dept : departments) {
-                long criticalCount = binService.getAllBins().stream()
+                long criticalCount = binService.getBinsByDepartmentId(dept.getId()).stream()
                         .filter(bin -> bin.getFillLevel() > 80.0)
                         .count();
                 if (criticalCount == 0) {

@@ -21,10 +21,15 @@ public class JwtUtil {
     }
 
     public String generateToken(User user) {
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .setSubject(user.getUsername())
-                .claim("role", user.getRole())
-                .claim("departmentId", user.getDepartmentId())  // ✅ ADD THIS
+                .claim("role", user.getRole() != null ? user.getRole().name() : "ADMIN");
+
+        if (user.getDepartmentId() != null) {
+            builder.claim("departmentId", user.getDepartmentId());
+        }
+
+        return builder
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + 86400000))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)

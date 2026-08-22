@@ -76,7 +76,7 @@ public class RouteExecutionService {
         if (existingOpt.isPresent()) {
             ActiveRoute existing = existingOpt.get();
             if ("IN_PROGRESS".equals(existing.getStatus())) {
-                logger.warn("⚠️ Vehicle {} already has active route. Cancelling it.", vehicleId);
+ logger.warn(" Vehicle {} already has active route. Cancelling it.", vehicleId);
                 existing.setStatus("CANCELLED");
                 activeRouteRepository.save(existing);
             }
@@ -91,9 +91,9 @@ public class RouteExecutionService {
             routeService.assignRouteToVehicle(preGenRoute.getRouteId(), vehicleId);
             routeBins = preGenRoute.getRouteBins();
             fullPolyline = preGenRoute.getPolyline();
-            logger.info("✅ Using pre-generated route {} with {} points", preGenRoute.getRouteId(), fullPolyline.size());
+ logger.info(" Using pre-generated route {} with {} points", preGenRoute.getRouteId(), fullPolyline.size());
         } else {
-            logger.warn("⚠️ No pre-generated routes available, building fresh for vehicle {}", vehicleId);
+ logger.warn(" No pre-generated routes available, building fresh for vehicle {}", vehicleId);
             routeBins = routeService.getOptimizedRoute(departmentId, vehicleId);
             fullPolyline = buildCompletePolyline(routeBins, departmentId);
             fullPolyline = ensureDepartmentReturnLastPoint(fullPolyline, department);
@@ -104,7 +104,7 @@ public class RouteExecutionService {
             RouteBin rb = routeBins.get(i);
             Bin bin = binService.getBinById(rb.getId());
             BinStop stop = new BinStop(rb.getId(), rb.getLatitude(), rb.getLongitude(), i + 1);
-            stop.setBinFillLevelBefore(bin.getFillLevel());
+            stop.setBinFillLevelBefore(bin != null ? bin.getFillLevel() : 0.0);
             binStops.add(stop);
         }
 
@@ -143,8 +143,8 @@ public class RouteExecutionService {
 
         activeVehiclesInfo.put(vehicleId, vehicleInfo);
 
-        logger.info("✅ Registered active vehicle: {} with route ID: {}", vehicleId, savedRoute.getId());
-        logger.info("🚀 Started route for vehicle {}: {} bins, {} points, {:.2f} km",
+ logger.info(" Registered active vehicle: {} with route ID: {}", vehicleId, savedRoute.getId());
+ logger.info(" Started route for vehicle {}: {} bins, {} points, {:.2f} km",
                 vehicleId, binStops.size(), fullPolyline.size(), route.getTotalDistanceKm());
 
         return savedRoute;
@@ -182,11 +182,11 @@ public class RouteExecutionService {
             List<RoutePoint> segment = new ArrayList<>();
 
             if (blockingIncident != null) {
-                logger.warn("🚧 Segment {} blocked by incident. Applying Box Detour.", i);
+ logger.warn(" Segment {} blocked by incident. Applying Box Detour.", i);
                 segment = fetchOSRMAlternativeSafeRoute(from, to, blockingIncident, sequenceNumber);
 
                 if (segment.isEmpty()) {
-                    logger.info("⚠️ Alternatives failed. Forcing Box Detour.");
+ logger.info(" Alternatives failed. Forcing Box Detour.");
                     segment = generateBoxDetour(from, to, blockingIncident, sequenceNumber);
                 }
             } else {
@@ -226,7 +226,8 @@ public class RouteExecutionService {
     private List<RoutePoint> fetchOSRMAlternativeSafeRoute(Location from, Location to, Incident incident, int startSeq) {
         try {
             String url = String.format(
-                    "%s/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson&alternatives=true",
+                    Locale.US,
+                    "%s/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson&alternatives=true",
                     osrmServerUrl, from.getLongitude(), from.getLatitude(), to.getLongitude(), to.getLatitude()
             );
 
@@ -235,7 +236,7 @@ public class RouteExecutionService {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode root = mapper.readTree(response);
 
-            if ("Ok".equals(root.path("code").asText())) {
+            if ("Ok".equalsIgnoreCase(root.path("code").asText())) {
                 JsonNode routes = root.path("routes");
                 for (JsonNode route : routes) {
                     List<RoutePoint> candidate = parseOSRMRoute(route, startSeq);
@@ -265,18 +266,18 @@ public class RouteExecutionService {
             Location c1 = getClosestCorner(from, corners);
             Location c2 = getClosestCorner(to, corners);
 
-            logger.info("🔄 Attempting Box Detour with radius: {} km (Multiplier: {})", String.format("%.2f", safeDistKm), mult);
+ logger.info(" Attempting Box Detour with radius: {} km (Multiplier: {})", String.format("%.2f", safeDistKm), mult);
 
             List<RoutePoint> segment = fetchOSRMMultiPoint(Arrays.asList(from, c1, c2, to), startSeq);
 
             if (!segment.isEmpty()) {
-                logger.info("✅ Valid ROAD path found with radius {} km", String.format("%.2f", safeDistKm));
+ logger.info(" Valid ROAD path found with radius {} km", String.format("%.2f", safeDistKm));
                 return segment;
             }
-            logger.warn("⚠️ Detour too tight or invalid for radius {} km. Expanding search...", String.format("%.2f", safeDistKm));
+ logger.warn(" Detour too tight or invalid for radius {} km. Expanding search...", String.format("%.2f", safeDistKm));
         }
 
-        logger.error("⛔ All detour attempts failed. No valid roads found surrounding the incident.");
+ logger.error(" All detour attempts failed. No valid roads found surrounding the incident.");
         return new ArrayList<>();
     }
 
@@ -293,16 +294,22 @@ public class RouteExecutionService {
                 sb.append(wp.getLongitude()).append(",").append(wp.getLatitude());
             }
 
+            String baseUrl = (osrmServerUrl != null && !osrmServerUrl.isEmpty()) ? osrmServerUrl : "https://router.project-osrm.org";
             String url = String.format(
                     "%s/route/v1/driving/%s?overview=full&geometries=geojson",
-                    osrmServerUrl,
+                    baseUrl,
                     sb.toString()
             );
 
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.set("User-Agent", "GarbageCollectorBackend/1.0");
+            org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>(headers);
+
             RestTemplate restTemplate = new RestTemplate();
-            String response = restTemplate.getForObject(url, String.class);
+            org.springframework.http.ResponseEntity<String> response = restTemplate.exchange(
+                    url, org.springframework.http.HttpMethod.GET, entity, String.class);
             ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(response);
+            JsonNode root = mapper.readTree(response.getBody());
 
             if ("Ok".equals(root.path("code").asText())) {
                 JsonNode coordinates = root.path("routes").get(0).path("geometry").path("coordinates");
@@ -319,7 +326,7 @@ public class RouteExecutionService {
                 }
             }
         } catch (Exception e) {
-            logger.error("⛔ Failed to fetch OSRM waypoints: {}", e.getMessage());
+            log.error("Failed to fetch OSRM waypoints: {}", e.getMessage());
         }
         return points;
     }
@@ -417,7 +424,7 @@ public class RouteExecutionService {
         if (existingOpt.isPresent()) {
             ActiveRoute existing = existingOpt.get();
             if ("IN_PROGRESS".equals(existing.getStatus())) {
-                logger.warn("⚠️ Vehicle {} already has active route. Cancelling it.", vehicleId);
+ logger.warn(" Vehicle {} already has active route. Cancelling it.", vehicleId);
                 existing.setStatus("CANCELLED");
                 activeRouteRepository.save(existing);
             }
@@ -427,7 +434,7 @@ public class RouteExecutionService {
         List<RoutePoint> fullPolyline = preGenRoute.getPolyline();
         
         if (fullPolyline == null || fullPolyline.isEmpty()) {
-            logger.warn("⚠️ Pre-generated route has no polyline, building fresh");
+ logger.warn(" Pre-generated route has no polyline, building fresh");
             fullPolyline = buildCompletePolyline(routeBins, departmentId);
             fullPolyline = ensureDepartmentReturnLastPoint(fullPolyline, department);
         }
@@ -466,7 +473,7 @@ public class RouteExecutionService {
         vehicleInfo.put("routeId", preGenRoute.getRouteId());
         activeVehiclesInfo.put(vehicleId, vehicleInfo);
 
-        logger.info("✅ Started route for vehicle {} with {} bins from pre-generated route {}",
+ logger.info(" Started route for vehicle {} with {} bins from pre-generated route {}",
                 vehicleId, routeBins.size(), preGenRoute.getRouteId());
 
         return activeRoute;
@@ -475,25 +482,25 @@ public class RouteExecutionService {
     public void updateRoute(String vehicleId, RouteResponse newRoute) {
         Optional<ActiveRoute> routeOpt = activeRouteRepository.findByVehicleId(vehicleId);
         if (routeOpt.isEmpty()) {
-            logger.warn("⚠️ Tried to update route for non-existent vehicle: {}", vehicleId);
+            logger.warn("Tried to update route for non-existent vehicle: {}", vehicleId);
             return;
         }
         ActiveRoute route = routeOpt.get();
+        int previousBinsCollected = route.getBinsCollected();
         route.setFullRoutePolyline(newRoute.getPolyline());
-        route.setBinStops(
-                newRoute.getBins().stream()
-                        .map(b -> new BinStop(b.getId(), b.getLatitude(), b.getLongitude(), 0))
-                        .collect(Collectors.toList())
-        );
+        List<BinStop> stops = newRoute.getBins().stream()
+                .map(b -> new BinStop(b.getId(), b.getLatitude(), b.getLongitude(), 0))
+                .collect(Collectors.toList());
+        route.setBinStops(stops);
         route.setAnimationProgress(0.0);
         route.setCurrentBinIndex(0);
-        route.setBinsCollected(0);
-        route.setTotalBins(newRoute.getBins().size());
+        route.setBinsCollected(previousBinsCollected);
+        route.setTotalBins(previousBinsCollected + stops.size());
         route.setTotalDistanceKm(calculateTotalDistance(newRoute.getPolyline()));
         activeRouteRepository.save(route);
 
         vehicleUpdatePublisher.publishRouteUpdate(vehicleId, newRoute);
-        logger.info("🔄 Vehicle {} route updated and pushed to clients", vehicleId);
+        logger.info("Vehicle {} route updated and pushed to clients", vehicleId);
     }
 
     public void saveRoute(ActiveRoute route) {
@@ -503,7 +510,7 @@ public class RouteExecutionService {
     public void completeRoute(String vehicleId) {
         Optional<ActiveRoute> routeOpt = activeRouteRepository.findByVehicleId(vehicleId);
         if (routeOpt.isEmpty()) {
-            logger.warn("⚠️ Tried to complete non-existent route for vehicle: {}", vehicleId);
+            logger.warn("Tried to complete non-existent route for vehicle: {}", vehicleId);
             return;
         }
         ActiveRoute route = routeOpt.get();
@@ -519,17 +526,24 @@ public class RouteExecutionService {
     ) {
         List<RoutePoint> points = new ArrayList<>();
         try {
+            String baseUrl = (osrmServerUrl != null && !osrmServerUrl.isEmpty()) ? osrmServerUrl : "https://router.project-osrm.org";
             String url = String.format(
-                    "%s/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson",
-                    osrmServerUrl, fromLng, fromLat, toLng, toLat
+                    Locale.US,
+                    "%s/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson",
+                    baseUrl, fromLng, fromLat, toLng, toLat
             );
 
-            RestTemplate restTemplate = new RestTemplate();
-            String response = restTemplate.getForObject(url, String.class);
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(response);
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.set("User-Agent", "GarbageCollectorBackend/1.0");
+            org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>(headers);
 
-            if ("Ok".equals(root.path("code").asText())) {
+            RestTemplate restTemplate = new RestTemplate();
+            org.springframework.http.ResponseEntity<String> response = restTemplate.exchange(
+                    url, org.springframework.http.HttpMethod.GET, entity, String.class);
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(response.getBody());
+
+            if ("Ok".equalsIgnoreCase(root.path("code").asText())) {
                 JsonNode coordinates = root.path("routes").get(0).path("geometry").path("coordinates");
                 int seq = startSequence;
                 for (JsonNode coord : coordinates) {
@@ -540,7 +554,7 @@ public class RouteExecutionService {
                 points.add(new RoutePoint(toLat, toLng, startSequence + 1));
             }
         } catch (Exception e) {
-            log.error("❌ OSRM fetch failed: {}", e.getMessage());
+            log.error("OSRM fetch failed: {}", e.getMessage());
             points.add(new RoutePoint(fromLat, fromLng, startSequence));
             points.add(new RoutePoint(toLat, toLng, startSequence + 1));
         }
@@ -608,7 +622,7 @@ public class RouteExecutionService {
             double detectionRadius = incidentRadiusMeters + earlyDetectionBuffer;
 
             if (distance <= detectionRadius) {
-                logger.warn("🚧 Vehicle {} approaching incident {} - Distance: {}m (incident radius: {}m)", 
+ logger.warn(" Vehicle {} approaching incident {} - Distance: {}m (incident radius: {}m)", 
                         vehicleId, incident.getId(), (int)distance, (int)incidentRadiusMeters);
                 lastRerouteTime.put(vehicleId, System.currentTimeMillis());
                 return incident;
@@ -619,24 +633,24 @@ public class RouteExecutionService {
 
     private void triggerReroute(ActiveRoute route, RoutePoint currentPosition, List<BinStop> remainingBins, Incident triggeringIncident) {
         try {
-            // ✅ Check for reroute loop - if we've hit the same incident multiple times, stop rerouting
+ // Check for reroute loop - if we've hit the same incident multiple times, stop rerouting
             if (route.isInRerouteLoop()) {
-                logger.error("🔄 Vehicle {} is stuck in a reroute loop! Stopping reroute attempts.", route.getVehicleId());
+ logger.error(" Vehicle {} is stuck in a reroute loop! Stopping reroute attempts.", route.getVehicleId());
                 route.setBlockedByIncident(true);
                 activeRouteRepository.save(route);
                 return;
             }
             
-            // ✅ Check if we've exceeded max reroute attempts
+ // Check if we've exceeded max reroute attempts
             if (route.hasExceededRerouteLimit()) {
-                logger.error("⛔ Vehicle {} has exceeded max reroute attempts ({}). Route blocked.", 
+ logger.error(" Vehicle {} has exceeded max reroute attempts ({}). Route blocked.", 
                         route.getVehicleId(), route.getRerouteAttempts());
                 route.setBlockedByIncident(true);
                 activeRouteRepository.save(route);
                 return;
             }
             
-            // ✅ Record this reroute attempt and the triggering incident
+ // Record this reroute attempt and the triggering incident
             if (triggeringIncident != null) {
                 route.recordRerouteAttempt(
                         currentPosition.getLatitude(), 
@@ -657,23 +671,23 @@ public class RouteExecutionService {
                     .collect(Collectors.toList());
 
             if (remainingBinIds.isEmpty()) {
-                logger.info("✅ All bins collected. Returning to department.");
+ logger.info(" All bins collected. Returning to department.");
                 return;
             }
 
-            logger.info("🔄 Generating reroute #{} with {} uncollected bins, avoiding {} previously encountered incidents",
+ logger.info(" Generating reroute #{} with {} uncollected bins, avoiding {} previously encountered incidents",
                     route.getRerouteAttempts(), remainingBinIds.size(), route.getAvoidedIncidentIds().size());
 
-            // ✅ Get ALL active road block incidents
+ // Get ALL active road block incidents
             List<Incident> allActiveIncidents = incidentService.getActiveIncidents().stream()
                     .filter(i -> i.getType() == IncidentType.ROAD_BLOCK)
                     .filter(i -> i.getLatitude() != null && i.getLongitude() != null)
                     .collect(Collectors.toList());
             
-            // ✅ Also include any previously avoided incidents that might have been resolved but we still want to avoid
+ // Also include any previously avoided incidents that might have been resolved but we still want to avoid
             // This ensures we don't route back through incidents we've already encountered
             Set<String> avoidedIds = route.getAvoidedIncidentIds();
-            logger.info("📋 Total incidents to avoid: {} active + {} previously avoided = checking all", 
+ logger.info(" Total incidents to avoid: {} active + {} previously avoided = checking all", 
                     allActiveIncidents.size(), avoidedIds.size());
 
             RouteResponse newRoute = routeService.generateRerouteWithAvoidance(
@@ -686,17 +700,17 @@ public class RouteExecutionService {
             );
 
             if (newRoute.getBins().isEmpty()) {
-                logger.info("✅ No valid bins to visit - returning to department.");
+ logger.info(" No valid bins to visit - returning to department.");
                 return;
             }
 
-            // ✅ USE THE POLYLINE ALREADY BUILT BY generateRerouteWithAvoidance
+ // USE THE POLYLINE ALREADY BUILT BY generateRerouteWithAvoidance
             // This polyline was already built with incident avoidance in mind
             List<RoutePoint> completePolyline = newRoute.getPolyline();
             
             // If the polyline is empty or null, fall back to building it (shouldn't happen)
             if (completePolyline == null || completePolyline.isEmpty()) {
-                logger.warn("⚠️ generateRerouteWithAvoidance returned empty polyline, building fallback");
+ logger.warn(" generateRerouteWithAvoidance returned empty polyline, building fallback");
                 Location startLoc = new Location(currentPosition.getLatitude(), currentPosition.getLongitude());
                 completePolyline = buildCompletePolylineFromLocation(
                         newRoute.getBins(),
@@ -704,7 +718,7 @@ public class RouteExecutionService {
                         startLoc
                 );
             } else {
-                logger.info("✅ Using pre-built polyline with {} points from generateRerouteWithAvoidance", completePolyline.size());
+ logger.info(" Using pre-built polyline with {} points from generateRerouteWithAvoidance", completePolyline.size());
             }
 
             route.setFullRoutePolyline(completePolyline);
@@ -728,10 +742,10 @@ public class RouteExecutionService {
 
             vehicleUpdatePublisher.publishRouteUpdate(route.getVehicleId(), newRoute);
 
-            logger.info("✅ Vehicle {} rerouted successfully with safe return path", route.getVehicleId());
+ logger.info(" Vehicle {} rerouted successfully with safe return path", route.getVehicleId());
 
         } catch (Exception e) {
-            logger.error("❌ Failed to reroute vehicle {}: {}", route.getVehicleId(), e.getMessage());
+ logger.error(" Failed to reroute vehicle {}: {}", route.getVehicleId(), e.getMessage());
         }
     }
 
@@ -742,12 +756,12 @@ public class RouteExecutionService {
             try {
                 updateTruckPosition(route);
             } catch (Exception e) {
-                logger.error("⛔ Error: {}", e.getMessage());
+ logger.error(" Error: {}", e.getMessage());
             }
         }
     }
     /**
-     * ✅ CRITICAL: Ensure vehicle returns to EXACT department location
+ * CRITICAL: Ensure vehicle returns to EXACT department location
      */
     private List<RoutePoint> ensureDepartmentReturnLastPoint(
             List<RoutePoint> polyline,
@@ -765,7 +779,7 @@ public class RouteExecutionService {
 
         // If last point is far from department, add it
         if (distToDepartment > 0.05) { // >50 meters
-            log.warn("⚠️ Last point is {}km from department - ADDING RETURN",
+ log.warn(" Last point is {}km from department - ADDING RETURN",
                     String.format("%.2f", distToDepartment));
 
             polyline.add(new RoutePoint(
@@ -790,7 +804,7 @@ public class RouteExecutionService {
         
         // Safety check: if no polyline, skip this route
         if (polyline == null || polyline.isEmpty()) {
-            logger.warn("⚠️ Route {} has empty polyline, skipping update", route.getId());
+ logger.warn(" Route {} has empty polyline, skipping update", route.getId());
             return;
         }
         
@@ -830,7 +844,7 @@ public class RouteExecutionService {
             vehicleInfo.put("fillLevel", newProgress * 100.0);
         }
 
-        // ✅ Check if vehicle is blocked - attempt rescue reroute every 10 seconds
+ // Check if vehicle is blocked - attempt rescue reroute every 10 seconds
         if (route.isBlockedByIncident()) {
             Long lastRescueAttempt = lastRerouteTime.get(route.getVehicleId() + "_rescue");
             long now = System.currentTimeMillis();
@@ -838,7 +852,7 @@ public class RouteExecutionService {
             // Try rescue reroute every 10 seconds
             if (lastRescueAttempt == null || now - lastRescueAttempt > 10000) {
                 lastRerouteTime.put(route.getVehicleId() + "_rescue", now);
-                logger.info("🆘 Attempting rescue reroute for blocked vehicle {}", route.getVehicleId());
+ logger.info(" Attempting rescue reroute for blocked vehicle {}", route.getVehicleId());
                 
                 // Clear blocked state and reroute limits to allow fresh reroute
                 route.setBlockedByIncident(false);
@@ -856,7 +870,9 @@ public class RouteExecutionService {
                                 .filter(i -> i.getLatitude() != null && i.getLongitude() != null)
                                 .collect(Collectors.toList());
                         
-                        Incident nearestIncident = allIncidents.isEmpty() ? null : allIncidents.get(0);
+                        Incident nearestIncident = allIncidents.stream()
+                                .min(Comparator.comparingDouble(i -> calculateDistance(newPosition.getLatitude(), newPosition.getLongitude(), i.getLatitude(), i.getLongitude())))
+                                .orElse(null);
                         triggerReroute(route, newPosition, remainingBins, nearestIncident);
                         return;
                     }
@@ -865,7 +881,7 @@ public class RouteExecutionService {
             return;
         }
 
-        // ✅ Find the specific incident the vehicle is approaching
+        // Find the specific incident the vehicle is approaching
         Incident nearbyIncident = findNearbyActiveIncident(newPosition.getLatitude(), newPosition.getLongitude(), route.getVehicleId(), route);
         if (nearbyIncident != null) {
             List<BinStop> binStops = route.getBinStops();
@@ -932,7 +948,7 @@ public class RouteExecutionService {
                     nextBin.setStatus("COLLECTED");
                     route.setCurrentBinIndex(route.getCurrentBinIndex() + 1);
                     activeRouteRepository.save(route);
-                    logger.info("✅ Bin {} collected: {}/{}", nextBin.getBinId(), route.getBinsCollected() + 1, route.getTotalBins());
+                    logger.info("Bin {} collected: {}/{}", nextBin.getBinId(), route.getBinsCollected() + 1, route.getTotalBins());
                 }
             }
             return;
@@ -961,22 +977,23 @@ public class RouteExecutionService {
         Vehicle vehicle = vehicleService.getVehicleById(route.getVehicleId())
                 .orElseThrow(() -> new RuntimeException("Vehicle not found"));
 
-        double binFillLevel = bin.getFillLevel();
+        double binFillLevel = bin != null ? bin.getFillLevel() : 0.0;
         double truckCapacityPerBin = 20.0;
         double truckFillIncrease = (binFillLevel / 100.0) * truckCapacityPerBin;
         double newFillLevel = Math.min(100.0, vehicle.getFillLevel() + truckFillIncrease);
 
-        bin.setFillLevel(0);
-        bin.setStatus("normal");
-        binService.saveBin(bin);
+        if (bin != null) {
+            bin.setFillLevel(0);
+            bin.setStatus("normal");
+            binService.saveBin(bin);
+            binUpdatePublisher.publishBinUpdate(bin);
+        }
 
         vehicle.setFillLevel(newFillLevel);
         vehicleService.saveVehicle(vehicle);
 
         route.setBinsCollected(route.getBinsCollected() + 1);
         activeRouteRepository.save(route);
-
-        binUpdatePublisher.publishBinUpdate(bin);
 
         RouteProgressUpdate progressUpdate = new RouteProgressUpdate(
                 route.getVehicleId(),
@@ -990,7 +1007,7 @@ public class RouteExecutionService {
 
     public void completeRoute(ActiveRoute route) {
         activeVehiclesInfo.remove(route.getVehicleId());
-        logger.info("🗑️ Removed vehicle {} from active tracking", route.getVehicleId());
+        logger.info("Removed vehicle {} from active tracking", route.getVehicleId());
 
         route.setStatus("COMPLETED");
         route.setEndTime(LocalDateTime.now());
@@ -1000,7 +1017,7 @@ public class RouteExecutionService {
 
         RouteCompletionEvent event = new RouteCompletionEvent(route.getVehicleId(), route.getBinsCollected());
         vehicleUpdatePublisher.publishRouteCompletion(event);
-        logger.info("✅ Route complete: {} bins collected", route.getBinsCollected());
+        logger.info("Route complete: {} bins collected", route.getBinsCollected());
     }
 
     public ActiveRoute startRouteWithSpecificBins(String departmentId, String vehicleId, List<String> binIds) {
@@ -1016,7 +1033,9 @@ public class RouteExecutionService {
         List<RouteBin> routeBins = new ArrayList<>();
         for (String binId : binIds) {
             Bin bin = binService.getBinById(binId);
-            routeBins.add(new RouteBin(bin.getId(), bin.getLatitude(), bin.getLongitude()));
+            if (bin != null) {
+                routeBins.add(new RouteBin(bin.getId(), bin.getLatitude(), bin.getLongitude()));
+            }
         }
 
         List<RoutePoint> fullPolyline = buildCompletePolyline(routeBins, departmentId);
@@ -1026,7 +1045,7 @@ public class RouteExecutionService {
             RouteBin rb = routeBins.get(i);
             Bin bin = binService.getBinById(rb.getId());
             BinStop stop = new BinStop(rb.getId(), rb.getLatitude(), rb.getLongitude(), i + 1);
-            stop.setBinFillLevelBefore(bin.getFillLevel());
+            stop.setBinFillLevelBefore(bin != null ? bin.getFillLevel() : 0.0);
             binStops.add(stop);
         }
 
@@ -1065,8 +1084,8 @@ public class RouteExecutionService {
 
         activeVehiclesInfo.put(vehicleId, vehicleInfo);
 
-        logger.info("✅ Registered active vehicle: {} with route ID: {}", vehicleId, savedRoute.getId());
-        logger.info("🚀 Route started: {} bins for vehicle {}", binStops.size(), vehicleId);
+ logger.info(" Registered active vehicle: {} with route ID: {}", vehicleId, savedRoute.getId());
+ logger.info(" Route started: {} bins for vehicle {}", binStops.size(), vehicleId);
 
         return savedRoute;
     }

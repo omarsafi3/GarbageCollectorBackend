@@ -20,11 +20,18 @@ public class EmployeeController {
     @Autowired
     private EmployeeService employeeService;
 
-    @Operation(summary = "Get all employees", description = "Retrieves a list of all employees")
+    @Operation(summary = "Get all employees", description = "Retrieves a list of all employees accessible to user")
     @ApiResponse(responseCode = "200", description = "List of all employees")
     @GetMapping
     public List<Employee> getAllEmployees() {
-        return employeeService.getAllEmployees();
+        if (com.municipality.garbagecollectorbackend.util.SecurityUtil.isSuperAdmin()) {
+            return employeeService.getAllEmployees();
+        }
+        String deptId = com.municipality.garbagecollectorbackend.util.SecurityUtil.getCurrentDepartmentId();
+        if (deptId != null) {
+            return employeeService.getEmployeesByDepartment(deptId);
+        }
+        return List.of();
     }
 
     @Operation(summary = "Get employee by ID", description = "Retrieves an employee by their unique ID")
@@ -33,6 +40,11 @@ public class EmployeeController {
     @GetMapping("/{id}")
     public ResponseEntity<Employee> getEmployeeById(@PathVariable String id) {
         return employeeService.getEmployeeById(id)
+                .filter(e -> {
+                    if (com.municipality.garbagecollectorbackend.util.SecurityUtil.isSuperAdmin()) return true;
+                    String deptId = com.municipality.garbagecollectorbackend.util.SecurityUtil.getCurrentDepartmentId();
+                    return e.getDepartment() != null && e.getDepartment().getId().equals(deptId);
+                })
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -41,13 +53,23 @@ public class EmployeeController {
     @ApiResponse(responseCode = "200", description = "List of available employees")
     @GetMapping("/available")
     public List<Employee> getAvailableEmployees() {
-        return employeeService.getAvailableEmployees();
+        if (com.municipality.garbagecollectorbackend.util.SecurityUtil.isSuperAdmin()) {
+            return employeeService.getAvailableEmployees();
+        }
+        String deptId = com.municipality.garbagecollectorbackend.util.SecurityUtil.getCurrentDepartmentId();
+        if (deptId != null) {
+            return employeeService.getAvailableEmployeesByDepartment(deptId);
+        }
+        return List.of();
     }
 
     @Operation(summary = "Get available employees by department", description = "Retrieves available employees for a specific department")
     @ApiResponse(responseCode = "200", description = "List of available employees in the department")
     @GetMapping("/available/department/{departmentId}")
     public List<Employee> getAvailableEmployeesByDepartment(@PathVariable String departmentId) {
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.canAccessDepartment(departmentId)) {
+            return List.of();
+        }
         return employeeService.getAvailableEmployeesByDepartment(departmentId);
     }
 

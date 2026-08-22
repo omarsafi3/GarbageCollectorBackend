@@ -23,10 +23,10 @@ public class Incident implements Serializable {
     private String id;
 
     @Indexed
-    private IncidentType type;  // ✅ Changed from String to enum
+ private IncidentType type; // Changed from String to enum
     
     @Indexed
-    private IncidentStatus status;  // ✅ Changed from String to enum
+ private IncidentStatus status; // Changed from String to enum
 
     private String description;
     

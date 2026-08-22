@@ -53,7 +53,10 @@ public class RouteHistory {
     // Status
     private String completionStatus; // COMPLETED, CANCELLED, PARTIAL
 
-    // ✅ FIXED: Added @Data annotation to nested class
+    // Trajectory Polyline for Replay
+    private List<RoutePoint> fullRoutePolyline;
+    private List<RerouteHistoryEntry> rerouteEvents;
+
     @Data
     public static class BinCollectionDetail {
         private String binId;

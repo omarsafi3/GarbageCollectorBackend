@@ -22,7 +22,7 @@ public class VehicleUpdatePublisher {
      */
     public void publishVehicleUpdate(Vehicle vehicle) {
         messagingTemplate.convertAndSend("/topic/vehicles", vehicle);
-        System.out.println("📡 Sent vehicle update: " + vehicle.getId() +
+ System.out.println(" Sent vehicle update: " + vehicle.getId() +
                 " -> " + vehicle.getFillLevel() + "%");
     }
 
@@ -31,7 +31,7 @@ public class VehicleUpdatePublisher {
      */
     public void publishTruckPosition(TruckPositionUpdate update) {
         messagingTemplate.convertAndSend("/topic/truck-position", update);
-        System.out.println("📍 Sent truck position: " + update.getVehicleId() +
+ System.out.println(" Sent truck position: " + update.getVehicleId() +
                 " -> (" + update.getLatitude() + ", " + update.getLongitude() +
                 ") Progress: " + String.format("%.1f", update.getProgressPercent()) + "%");
     }
@@ -41,7 +41,7 @@ public class VehicleUpdatePublisher {
      */
     public void publishRouteProgress(RouteProgressUpdate update) {
         messagingTemplate.convertAndSend("/topic/route-progress", update);
-        System.out.println("📊 Sent route progress: " + update.getVehicleId() +
+ System.out.println(" Sent route progress: " + update.getVehicleId() +
                 " -> Stop " + update.getCurrentStop() + "/" + update.getTotalStops() +
                 " (Fill: " + String.format("%.1f", update.getVehicleFillLevel()) + "%)");
     }
@@ -51,7 +51,7 @@ public class VehicleUpdatePublisher {
      */
     public void publishRouteCompletion(RouteCompletionEvent event) {
         messagingTemplate.convertAndSend("/topic/route-completion", event);
-        System.out.println("✅ Sent route completion: " + event.getVehicleId() +
+ System.out.println(" Sent route completion: " + event.getVehicleId() +
                 " -> " + event.getBinsCollected() + " bins collected");
     }
     public void publishRouteUpdate(String vehicleId, RouteResponse newRoute) {
@@ -62,7 +62,7 @@ public class VehicleUpdatePublisher {
                 "totalDistance", newRoute.getTotalDistanceKm()
         ));
 
-        System.out.println("🔄 Sent route update: " + vehicleId +
+ System.out.println(" Sent route update: " + vehicleId +
                 " -> " + newRoute.getBins().size() + " bins, " +
                 String.format("%.2f", newRoute.getTotalDistanceKm()) + " km");
     }

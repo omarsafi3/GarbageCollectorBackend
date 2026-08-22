@@ -34,7 +34,7 @@ public class EmployeeService {
         return employeeRepository.findById(id);
     }
 
-    // ✅ UPDATED: Filter by status as well
+ // UPDATED: Filter by status as well
     public List<Employee> getAvailableEmployees() {
         return employeeRepository.findAll()
                 .stream()
@@ -43,7 +43,7 @@ public class EmployeeService {
                 .collect(Collectors.toList());
     }
 
-    // ✅ NEW: Get available employees by department
+ // NEW: Get available employees by department
     public List<Employee> getAvailableEmployeesByDepartment(String departmentId) {
         return employeeRepository.findAll()
                 .stream()
@@ -68,7 +68,7 @@ public class EmployeeService {
                 .collect(Collectors.toList());
     }
 
-    // ✅ NEW: Assign employees to vehicle
+ // NEW: Assign employees to vehicle
     @Caching(evict = {
         @CacheEvict(value = "employees", allEntries = true),
         @CacheEvict(value = "employeesByDepartment", allEntries = true)
@@ -91,7 +91,7 @@ public class EmployeeService {
             }
         }
 
-        // ✅ Validate: Must have at least 1 driver and 1 collector
+ // Validate: Must have at least 1 driver and 1 collector
         long driverCount = employees.stream()
                 .filter(e -> e.getRole() == Employee.EmployeeRole.DRIVER)
                 .count();
@@ -113,11 +113,11 @@ public class EmployeeService {
             employeeRepository.save(emp);
         }
 
-        System.out.println("✅ Assigned " + employees.size() + " employees (drivers: " + driverCount + ", collectors: " + collectorCount + ") to vehicle " + vehicleId);
+ System.out.println(" Assigned " + employees.size() + " employees (drivers: " + driverCount + ", collectors: " + collectorCount + ") to vehicle " + vehicleId);
         return true;
     }
 
-    // ✅ NEW: Update employee status when vehicle starts route
+ // NEW: Update employee status when vehicle starts route
     @Caching(evict = {
         @CacheEvict(value = "employees", allEntries = true),
         @CacheEvict(value = "employeesByDepartment", allEntries = true)
@@ -133,10 +133,10 @@ public class EmployeeService {
             employeeRepository.save(emp);
         }
 
-        System.out.println("🚛 " + employees.size() + " employees marked IN_ROUTE for vehicle " + vehicleId);
+ System.out.println(" " + employees.size() + " employees marked IN_ROUTE for vehicle " + vehicleId);
     }
 
-    // ✅ NEW: Release employees when vehicle completes route
+ // NEW: Release employees when vehicle completes route
     @Caching(evict = {
         @CacheEvict(value = "employees", allEntries = true),
         @CacheEvict(value = "employeesByDepartment", allEntries = true)
@@ -153,10 +153,10 @@ public class EmployeeService {
             employeeRepository.save(emp);
         }
 
-        System.out.println("✅ Released " + employees.size() + " employees from vehicle " + vehicleId);
+ System.out.println(" Released " + employees.size() + " employees from vehicle " + vehicleId);
     }
 
-    // ✅ NEW: Get employees assigned to a vehicle
+ // NEW: Get employees assigned to a vehicle
     public List<Employee> getEmployeesByVehicle(String vehicleId) {
         return employeeRepository.findAll()
                 .stream()
@@ -164,7 +164,7 @@ public class EmployeeService {
                 .collect(Collectors.toList());
     }
 
-    // ✅ NEW: Check if vehicle has required employees (at least 1 driver + 1 collector)
+ // NEW: Check if vehicle has required employees (at least 1 driver + 1 collector)
     public boolean vehicleHasRequiredEmployees(String vehicleId) {
         List<Employee> assigned = employeeRepository.findAll()
                 .stream()
@@ -193,17 +193,17 @@ public class EmployeeService {
             employee.setDepartment(dep);
         }
 
-        // ✅ Initialize status if null
+ // Initialize status if null
         if (employee.getStatus() == null) {
             employee.setStatus(EmployeeStatus.AVAILABLE);
         }
 
-        // ✅ Default role to COLLECTOR if not set
+ // Default role to COLLECTOR if not set
         if (employee.getRole() == null) {
             employee.setRole(Employee.EmployeeRole.COLLECTOR);
         }
 
-        // ✅ Default available to true if not set
+ // Default available to true if not set
         if (employee.getAvailable() == null) {
             employee.setAvailable(true);
         }

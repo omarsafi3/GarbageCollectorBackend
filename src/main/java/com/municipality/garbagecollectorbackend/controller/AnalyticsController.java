@@ -30,7 +30,7 @@ public class AnalyticsController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate
     ) {
-        // ✅ Default to last 30 days if no dates provided
+ // Default to last 30 days if no dates provided
         if (startDate == null) {
             startDate = LocalDateTime.now().minusDays(30);
         }
@@ -80,7 +80,7 @@ public class AnalyticsController {
             endDate = LocalDateTime.now();
         }
 
-        // ✅ Create final variables for lambda
+ // Create final variables for lambda
         final LocalDateTime finalStartDate = startDate;
         final LocalDateTime finalEndDate = endDate;
 

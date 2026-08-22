@@ -32,7 +32,7 @@ public class AnalyticsService {
     @Autowired
     private DepartmentRepository departmentRepository;
 
-    // ✅ CONSTANTS: Emissions and cost calculations
+ // CONSTANTS: Emissions and cost calculations
     private static final double CO2_PER_KM = 0.27; // kg CO2 per km (diesel truck average)
     private static final double FUEL_CONSUMPTION_PER_KM = 0.15; // liters per km
     private static final double FUEL_COST_PER_LITER = 1.5; // euros per liter
@@ -45,13 +45,13 @@ public class AnalyticsService {
     public RouteHistory saveRouteToHistory(ActiveRoute activeRoute) {
         RouteHistory history = new RouteHistory();
 
-        // ✅ Basic Info
+ // Basic Info
         history.setVehicleId(activeRoute.getVehicleId());
         history.setDepartmentId(activeRoute.getDepartmentId());
         history.setStartTime(activeRoute.getStartTime());
         history.setEndTime(activeRoute.getEndTime());
 
-        // ✅ Get vehicle and department names
+ // Get vehicle and department names
         Optional<Vehicle> vehicleOpt = vehicleRepository.findById(activeRoute.getVehicleId());
         if (vehicleOpt.isPresent()) {
             history.setVehicleReference(vehicleOpt.get().getReference());
@@ -62,14 +62,14 @@ public class AnalyticsService {
             history.setDepartmentName(deptOpt.get().getName());
         }
 
-        // ✅ Calculate duration
+ // Calculate duration
         long durationMinutes = ChronoUnit.MINUTES.between(
                 activeRoute.getStartTime(),
                 activeRoute.getEndTime()
         );
         history.setDurationMinutes(durationMinutes);
 
-        // ✅ Performance Metrics
+ // Performance Metrics
         history.setTotalBins(activeRoute.getTotalBins());
         history.setBinsCollected(activeRoute.getBinsCollected());
         history.setTotalDistanceKm(activeRoute.getTotalDistanceKm());
@@ -79,21 +79,21 @@ public class AnalyticsService {
         double averageSpeed = durationHours > 0 ? activeRoute.getTotalDistanceKm() / durationHours : 0;
         history.setAverageSpeed(averageSpeed);
 
-        // ✅ Environmental Impact
+ // Environmental Impact
         double co2Emissions = activeRoute.getTotalDistanceKm() * CO2_PER_KM;
         history.setCo2EmissionsKg(co2Emissions);
 
         double fuelConsumed = activeRoute.getTotalDistanceKm() * FUEL_CONSUMPTION_PER_KM;
         history.setFuelConsumedLiters(fuelConsumed);
 
-        // ✅ Cost Calculation
+ // Cost Calculation
         double fuelCost = fuelConsumed * FUEL_COST_PER_LITER;
         double laborCost = durationHours * LABOR_COST_PER_HOUR;
         double vehicleCost = activeRoute.getTotalDistanceKm() * VEHICLE_COST_PER_KM;
         double totalCost = fuelCost + laborCost + vehicleCost;
         history.setEstimatedCost(totalCost);
 
-        // ✅ Bin Details
+ // Bin Details
         List<BinCollectionDetail> binDetails = new ArrayList<>();
         for (BinStop stop : activeRoute.getBinStops()) {
             if ("COLLECTED".equals(stop.getStatus())) {
@@ -108,7 +108,7 @@ public class AnalyticsService {
         }
         history.setBinDetails(binDetails);
 
-        // ✅ Completion Status
+ // Completion Status
         if (activeRoute.getBinsCollected() == activeRoute.getTotalBins()) {
             history.setCompletionStatus("COMPLETED");
         } else if (activeRoute.getBinsCollected() > 0) {
@@ -119,7 +119,7 @@ public class AnalyticsService {
 
         // Save to database
         RouteHistory saved = routeHistoryRepository.save(history);
-        System.out.println("💾 Saved route history: " + saved.getId() +
+ System.out.println(" Saved route history: " + saved.getId() +
                 " | Distance: " + String.format("%.2f", saved.getTotalDistanceKm()) + " km" +
                 " | CO2: " + String.format("%.2f", saved.getCo2EmissionsKg()) + " kg" +
                 " | Cost: €" + String.format("%.2f", saved.getEstimatedCost()));
@@ -137,7 +137,7 @@ public class AnalyticsService {
 
         Map<String, Object> analytics = new HashMap<>();
 
-        // ✅ Totals
+ // Totals
         int totalRoutes = routes.size();
         int totalBinsCollected = routes.stream().mapToInt(RouteHistory::getBinsCollected).sum();
         double totalDistance = routes.stream().mapToDouble(RouteHistory::getTotalDistanceKm).sum();
@@ -152,7 +152,7 @@ public class AnalyticsService {
         analytics.put("totalFuelLiters", Math.round(totalFuel * 100.0) / 100.0);
         analytics.put("totalCostEuros", Math.round(totalCost * 100.0) / 100.0);
 
-        // ✅ Averages
+ // Averages
         if (totalRoutes > 0) {
             analytics.put("avgDistancePerRoute", Math.round((totalDistance / totalRoutes) * 100.0) / 100.0);
             analytics.put("avgBinsPerRoute", Math.round((double) totalBinsCollected / totalRoutes * 100.0) / 100.0);
@@ -165,14 +165,14 @@ public class AnalyticsService {
             analytics.put("avgCO2PerRoute", 0);
         }
 
-        // ✅ Environmental Comparison
+ // Environmental Comparison
         double treesEquivalent = totalCO2 / 21.0; // 1 tree absorbs ~21 kg CO2/year
         double carsEquivalent = totalDistance / 15000.0; // Average car drives 15,000 km/year
 
         analytics.put("treesNeededToOffset", Math.round(treesEquivalent * 100.0) / 100.0);
         analytics.put("equivalentCarYears", Math.round(carsEquivalent * 100.0) / 100.0);
 
-        // ✅ Efficiency Score (0-100)
+ // Efficiency Score (0-100)
         double efficiency = totalRoutes > 0 ?
                 Math.min(100, (totalBinsCollected / (totalDistance + 1)) * 10) : 0;
         analytics.put("efficiencyScore", Math.round(efficiency));

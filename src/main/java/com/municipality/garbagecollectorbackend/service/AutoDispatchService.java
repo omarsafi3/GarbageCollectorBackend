@@ -60,7 +60,7 @@ public class AutoDispatchService {
             return;
         }
 
-        log.debug("🤖 Auto-dispatch check running...");
+ log.debug(" Auto-dispatch check running...");
 
         try {
             List<Department> departments = departmentService.getAllDepartments();
@@ -69,7 +69,7 @@ public class AutoDispatchService {
                 autoDispatchForDepartment(department.getId());
             }
         } catch (Exception e) {
-            log.error("❌ Auto-dispatch error: {}", e.getMessage(), e);
+ log.error(" Auto-dispatch error: {}", e.getMessage(), e);
         }
     }
 
@@ -130,7 +130,7 @@ public class AutoDispatchService {
             return;
         }
 
-        log.info("🤖 Auto-dispatching {} vehicle(s) for department {}", maxDispatchable, departmentId);
+ log.info(" Auto-dispatching {} vehicle(s) for department {}", maxDispatchable, departmentId);
 
         // Sort routes by priority (more bins = higher priority)
         availableRoutes.sort((a, b) -> Integer.compare(b.getBinCount(), a.getBinCount()));
@@ -145,7 +145,7 @@ public class AutoDispatchService {
             try {
                 dispatchVehicle(vehicle, route, driver, collector, departmentId);
             } catch (Exception e) {
-                log.error("❌ Failed to auto-dispatch vehicle {}: {}", vehicle.getId(), e.getMessage());
+ log.error(" Failed to auto-dispatch vehicle {}: {}", vehicle.getId(), e.getMessage());
             }
         }
     }
@@ -155,7 +155,7 @@ public class AutoDispatchService {
      */
     private void dispatchVehicle(Vehicle vehicle, PreGeneratedRoute route, 
                                   Employee driver, Employee collector, String departmentId) {
-        log.info("🚛 Auto-dispatching vehicle {} with route {} ({} bins)",
+ log.info(" Auto-dispatching vehicle {} with route {} ({} bins)",
                 vehicle.getReference(), route.getRouteId(), route.getBinCount());
 
         // Assign employees to vehicle
@@ -163,7 +163,7 @@ public class AutoDispatchService {
         boolean employeesAssigned = employeeService.assignEmployeesToVehicle(vehicle.getId(), employeeIds);
         
         if (!employeesAssigned) {
-            log.warn("⚠️ Failed to assign employees to vehicle {}", vehicle.getId());
+ log.warn(" Failed to assign employees to vehicle {}", vehicle.getId());
             return;
         }
 
@@ -179,7 +179,7 @@ public class AutoDispatchService {
         // Notify frontend
         notifyAutoDispatch(vehicle, route, driver, collector, departmentId);
 
-        log.info("✅ Auto-dispatched vehicle {} on route {} with driver {} and collector {}",
+ log.info(" Auto-dispatched vehicle {} on route {} with driver {} and collector {}",
                 vehicle.getReference(), route.getRouteId(), 
                 driver.getFirstName(), collector.getFirstName());
     }
@@ -219,7 +219,7 @@ public class AutoDispatchService {
         notification.put("timestamp", Instant.now().toString());
 
         messagingTemplate.convertAndSend("/topic/auto-dispatch", notification);
-        log.info("📡 Notified frontend: Auto-dispatched {} on route {}", 
+ log.info(" Notified frontend: Auto-dispatched {} on route {}", 
                 vehicle.getReference(), route.getRouteId());
     }
 
@@ -285,7 +285,7 @@ public class AutoDispatchService {
      */
     public void setAutoDispatchEnabled(boolean enabled) {
         this.autoDispatchEnabled = enabled;
-        log.info("🤖 Auto-dispatch {}", enabled ? "ENABLED" : "DISABLED");
+ log.info(" Auto-dispatch {}", enabled ? "ENABLED" : "DISABLED");
     }
 
     public boolean isAutoDispatchEnabled() {

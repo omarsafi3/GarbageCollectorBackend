@@ -21,11 +21,18 @@ public class BinController {
     @Autowired
     private BinService binService;
 
-    @Operation(summary = "Get all bins", description = "Retrieve a list of all garbage bins")
+    @Operation(summary = "Get all bins", description = "Retrieve a list of all garbage bins scoped to user department")
     @ApiResponse(responseCode = "200", description = "List of bins retrieved successfully")
     @GetMapping
     public List<Bin> getAllBins() {
-        return binService.getAllBins();
+        if (com.municipality.garbagecollectorbackend.util.SecurityUtil.isSuperAdmin()) {
+            return binService.getAllBins();
+        }
+        String deptId = com.municipality.garbagecollectorbackend.util.SecurityUtil.getCurrentDepartmentId();
+        if (deptId != null && !deptId.isEmpty()) {
+            return binService.getBinsByDepartmentId(deptId);
+        }
+        return List.of();
     }
 
     @Operation(summary = "Get bin by ID", description = "Retrieve a single bin by its ID")
@@ -39,13 +46,22 @@ public class BinController {
         if (bin == null) {
             return ResponseEntity.notFound().build();
         }
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.isSuperAdmin()) {
+            String deptId = com.municipality.garbagecollectorbackend.util.SecurityUtil.getCurrentDepartmentId();
+            if (bin.getDepartment() == null || !bin.getDepartment().getId().equals(deptId)) {
+                return ResponseEntity.status(403).build();
+            }
+        }
         return ResponseEntity.ok(bin);
     }
 
     @Operation(summary = "Get bins by department", description = "Retrieve all bins belonging to a specific department")
     @GetMapping("/department/{departmentId}")
-    public List<Bin> getBinsByDepartment(@Parameter(description = "Department ID") @PathVariable String departmentId) {
-        return binService.getBinsByDepartmentId(departmentId);
+    public ResponseEntity<List<Bin>> getBinsByDepartment(@Parameter(description = "Department ID") @PathVariable String departmentId) {
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.canAccessDepartment(departmentId)) {
+            return ResponseEntity.status(403).build();
+        }
+        return ResponseEntity.ok(binService.getBinsByDepartmentId(departmentId));
     }
 
     @Operation(summary = "Create a new bin", description = "Add a new garbage bin to the system")
@@ -56,6 +72,15 @@ public class BinController {
     @PostMapping
     public ResponseEntity<?> createBin(@RequestBody Bin bin) {
         try {
+            if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.isSuperAdmin()) {
+                String deptId = com.municipality.garbagecollectorbackend.util.SecurityUtil.getCurrentDepartmentId();
+                if (deptId != null) {
+                    if (bin.getDepartment() == null) {
+                        bin.setDepartment(new com.municipality.garbagecollectorbackend.model.Department());
+                    }
+                    bin.getDepartment().setId(deptId);
+                }
+            }
             Bin saved = binService.saveBin(bin);
             return ResponseEntity.ok(saved);
         } catch (RuntimeException e) {

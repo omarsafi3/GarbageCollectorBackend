@@ -53,6 +53,9 @@ public class RouteController {
             @RequestParam String departmentId,
             @RequestParam String vehicleId
     ) {
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.canAccessDepartment(departmentId)) {
+            return List.of();
+        }
         Optional<Department> departmentOpt = departmentService.getDepartmentById(departmentId);
         Optional<Vehicle> vehicleOpt = vehicleService.getVehicleById(vehicleId);
 
@@ -63,11 +66,11 @@ public class RouteController {
 
         Department department = departmentOpt.get();
 
-        // Get all critical bins for the department
-        List<Bin> bins = binService.getCriticalBins(CRITICAL_BIN_THRESHOLD);
+        // Get all critical bins ONLY for THIS department
+        List<Bin> bins = binService.getCriticalBinsByDepartment(departmentId, CRITICAL_BIN_THRESHOLD);
 
         if (bins.isEmpty()) {
-            System.out.println("[RouteController] No bins with fillLevel >= " + CRITICAL_BIN_THRESHOLD);
+            System.out.println("[RouteController] No bins with fillLevel >= " + CRITICAL_BIN_THRESHOLD + " in department " + departmentId);
             return List.of();
         }
 
@@ -80,7 +83,7 @@ public class RouteController {
         }
 
         System.out.println("[RouteController] Optimizing routes for " +
-                allDepartmentVehicles.size() + " vehicles with " + bins.size() + " bins");
+                allDepartmentVehicles.size() + " vehicles with " + bins.size() + " bins in " + department.getName());
 
         // Calculate routes for ALL vehicles (fair distribution)
         List<VehicleRouteResult> routeResults =
@@ -127,6 +130,9 @@ public class RouteController {
     public List<DepartmentRoutingService.DepartmentRouteDTO> optimizeDepartment(
             @RequestParam String departmentId
     ) {
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.canAccessDepartment(departmentId)) {
+            return List.of();
+        }
         System.out.println("[RouteController] Optimizing all routes for department " + departmentId);
         return departmentRoutingService.optimizeDepartmentRoutes(departmentId, 30.0);
     }
@@ -138,14 +144,17 @@ public class RouteController {
     public ResponseEntity<List<Map<String, Object>>> getDepartmentRoutesWithPolylines(
             @RequestParam String departmentId
     ) {
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.canAccessDepartment(departmentId)) {
+            return ResponseEntity.status(403).build();
+        }
         try {
-            System.out.println("📍 Fetching routes with polylines for department: " + departmentId);
+            System.out.println(" Fetching routes with polylines for department: " + departmentId);
 
-            // Get critical bins (fill level >= threshold)
-            List<Bin> bins = binService.getCriticalBins(CRITICAL_BIN_THRESHOLD);
+            // Get critical bins strictly for this department
+            List<Bin> bins = binService.getCriticalBinsByDepartment(departmentId, CRITICAL_BIN_THRESHOLD);
 
             if (bins.isEmpty()) {
-                System.out.println("⚠️ No bins with fillLevel >= " + CRITICAL_BIN_THRESHOLD);
+                System.out.println(" No bins with fillLevel >= " + CRITICAL_BIN_THRESHOLD + " in department " + departmentId);
                 return ResponseEntity.ok(Collections.emptyList());
             }
 
@@ -153,7 +162,7 @@ public class RouteController {
             List<Vehicle> availableVehicles = vehicleService.getAvailableVehiclesByDepartment(departmentId);
 
             if (availableVehicles.isEmpty()) {
-                System.out.println("⚠️ No available vehicles");
+                System.out.println(" No available vehicles");
                 return ResponseEntity.ok(Collections.emptyList());
             }
 
@@ -187,8 +196,8 @@ public class RouteController {
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
 
-                // Build polyline using PolylineService
-                List<double[]> polyline = polylineService.buildRoutePolyline(routeBins);
+                // Build polyline using PolylineService with department
+                List<double[]> polyline = polylineService.buildRoutePolyline(routeBins, deptOpt.orElse(null));
 
                 Map<String, Object> routeData = new HashMap<>();
                 routeData.put("vehicleId", vehicleId);
@@ -198,11 +207,11 @@ public class RouteController {
                 routesWithPolylines.add(routeData);
             }
 
-            System.out.println("✅ Returning " + routesWithPolylines.size() + " routes");
+            log.info("Returning {} routes with polylines for department {}", routesWithPolylines.size(), departmentId);
             return ResponseEntity.ok(routesWithPolylines);
 
         } catch (Exception e) {
-            System.err.println("❌ Failed to fetch routes: " + e.getMessage());
+            log.error("Failed to fetch routes: {}", e.getMessage(), e);
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
@@ -214,13 +223,16 @@ public class RouteController {
             @RequestParam String departmentId,
             @RequestParam List<String> binIds
     ) {
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.canAccessDepartment(departmentId)) {
+            return List.of();
+        }
         Optional<Department> departmentOpt = departmentService.getDepartmentById(departmentId);
         if (departmentOpt.isEmpty() || binIds == null || binIds.isEmpty()) {
             return List.of();
         }
 
-        // Find only the bins with these IDs
-        List<Bin> allBins = binService.getAllBins();
+        // Find only the bins with these IDs belonging to THIS department
+        List<Bin> allBins = binService.getBinsByDepartmentId(departmentId);
         Set<String> wanted = new HashSet<>(binIds);
         List<Bin> bins = allBins.stream()
                 .filter(b -> wanted.contains(b.getId()))
@@ -284,7 +296,11 @@ public class RouteController {
     public ResponseEntity<Map<String, Object>> executeAllManagedRoutes(
             @RequestParam String departmentId) {
 
-        System.out.println("🚀 Starting routes for ALL vehicles in department " + departmentId);
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.canAccessDepartment(departmentId)) {
+            return ResponseEntity.status(403).build();
+        }
+
+        System.out.println(" Starting routes for ALL vehicles in department " + departmentId);
 
         try {
             // Get all available vehicles for this department
@@ -306,13 +322,13 @@ public class RouteController {
                 return ResponseEntity.badRequest().body(error);
             }
 
-            // Get all critical bins
-            List<Bin> criticalBins = binService.getCriticalBins(CRITICAL_BIN_THRESHOLD);
+            // Get all critical bins strictly for this department
+            List<Bin> criticalBins = binService.getCriticalBinsByDepartment(departmentId, CRITICAL_BIN_THRESHOLD);
 
             if (criticalBins.isEmpty()) {
                 Map<String, Object> error = new HashMap<>();
                 error.put("success", false);
-                error.put("error", "No bins need collection");
+                error.put("error", "No bins need collection in department " + departmentId);
                 return ResponseEntity.badRequest().body(error);
             }
 
@@ -325,7 +341,7 @@ public class RouteController {
                     Collections.emptySet()
             );
 
-            System.out.println("✅ Calculated " + allRoutes.size() + " unique routes");
+ System.out.println(" Calculated " + allRoutes.size() + " unique routes");
 
             List<Map<String, Object>> routeResults = new ArrayList<>();
 
@@ -335,7 +351,7 @@ public class RouteController {
                     String vehicleId = routeResult.getVehicleId();
                     List<String> binIds = routeResult.getOrderedBinIds();
 
-                    System.out.println("🚛 Starting vehicle " + vehicleId + " with " + binIds.size() + " bins");
+ System.out.println(" Starting vehicle " + vehicleId + " with " + binIds.size() + " bins");
 
                     // Start route with specific bin IDs
                     ActiveRoute activeRoute = routeExecutionService.startRouteWithSpecificBins(
@@ -352,10 +368,10 @@ public class RouteController {
 
                     routeResults.add(routeInfo);
 
-                    System.out.println("✅ Started route for vehicle " + vehicleId);
+ System.out.println(" Started route for vehicle " + vehicleId);
 
                 } catch (Exception e) {
-                    System.err.println("❌ Failed to start route for vehicle " + routeResult.getVehicleId() + ": " + e.getMessage());
+ System.err.println(" Failed to start route for vehicle " + routeResult.getVehicleId() + ": " + e.getMessage());
 
                     Map<String, Object> routeInfo = new HashMap<>();
                     routeInfo.put("vehicleId", routeResult.getVehicleId());
@@ -374,7 +390,7 @@ public class RouteController {
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            System.err.println("❌ Failed to start routes: " + e.getMessage());
+ System.err.println(" Failed to start routes: " + e.getMessage());
             e.printStackTrace();
 
             Map<String, Object> error = new HashMap<>();
@@ -415,10 +431,10 @@ public class RouteController {
             @RequestParam String departmentId,
             @RequestParam String vehicleId) {
 
-        System.out.println("🚀 Starting managed route for vehicle " + vehicleId);
+ System.out.println(" Starting managed route for vehicle " + vehicleId);
 
         try {
-            // ✅ ADD THIS LINE - Set vehicle to IN_ROUTE
+ // ADD THIS LINE - Set vehicle to IN_ROUTE
             vehicleService.startRoute(vehicleId);
 
             ActiveRoute activeRoute = routeExecutionService.startRouteWithFullPath(departmentId, vehicleId);
@@ -433,7 +449,7 @@ public class RouteController {
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            System.err.println("❌ Failed to start route: " + e.getMessage());
+ System.err.println(" Failed to start route: " + e.getMessage());
             e.printStackTrace();
 
             Map<String, Object> error = new HashMap<>();
@@ -447,6 +463,9 @@ public class RouteController {
     @ApiResponse(responseCode = "200", description = "List of available routes")
     @GetMapping("/department/{departmentId}/available-routes")
     public ResponseEntity<List<Map<String, Object>>> getAvailableRoutes(@PathVariable String departmentId) {
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.canAccessDepartment(departmentId)) {
+            return ResponseEntity.status(403).build();
+        }
         List<PreGeneratedRoute> routes = routeOptimizationService.getAvailableRoutes(departmentId);
 
         List<Map<String, Object>> response = routes.stream().map(route -> {
@@ -454,7 +473,7 @@ public class RouteController {
             routeData.put("routeId", route.getRouteId());
             routeData.put("binCount", route.getBinCount());
             routeData.put("bins", route.getRouteBins());
-            routeData.put("polyline", route.getPolyline());  // ✅ ADD THIS
+ routeData.put("polyline", route.getPolyline()); // ADD THIS
             return routeData;
         }).collect(Collectors.toList());
 
@@ -467,13 +486,16 @@ public class RouteController {
     @ApiResponse(responseCode = "500", description = "Error fetching routes")
     @GetMapping("/department/{departmentId}/pre-generated")
     public ResponseEntity<?> getPreGeneratedRoutes(@PathVariable String departmentId) {
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.canAccessDepartment(departmentId)) {
+            return ResponseEntity.status(403).build();
+        }
         try {
-            log.info("📦 Fetching pre-generated routes for department: {}", departmentId);
+            log.info("Fetching pre-generated routes for department: {}", departmentId);
 
             List<PreGeneratedRoute> preGenRoutes = routeOptimizationService.getAllPreGeneratedRoutes(departmentId);
 
             if (preGenRoutes.isEmpty()) {
-                log.info("ℹ️ No pre-generated routes found, triggering generation...");
+                log.info("No pre-generated routes found, triggering generation...");
                 routeOptimizationService.generateRoutesForDepartment(departmentId);
                 preGenRoutes = routeOptimizationService.getAllPreGeneratedRoutes(departmentId);
             }
@@ -498,8 +520,16 @@ public class RouteController {
                     }
                 }
 
-                // Build OSRM polyline using PolylineService
-                List<double[]> polyline = polylineService.buildRoutePolyline(bins);
+                // Use the route's pre-calculated polyline if available, or build using PolylineService
+                List<double[]> polyline = new ArrayList<>();
+                if (route.getPolyline() != null && !route.getPolyline().isEmpty()) {
+                    for (RoutePoint rp : route.getPolyline()) {
+                        polyline.add(new double[]{rp.getLatitude(), rp.getLongitude()});
+                    }
+                } else {
+                    Department dept = departmentService.getDepartmentById(departmentId).orElse(null);
+                    polyline = polylineService.buildRoutePolyline(bins, dept);
+                }
 
                 // Convert RouteBins for response
                 List<Map<String, Object>> binMaps = new ArrayList<>();
@@ -516,11 +546,11 @@ public class RouteController {
                 response.add(routeMap);
             }
 
-            log.info("✅ Returning {} pre-generated routes with OSRM polylines", response.size());
+            log.info("Returning {} pre-generated routes with OSRM polylines", response.size());
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            log.error("❌ Error fetching pre-generated routes", e);
+            log.error("Error fetching pre-generated routes", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to fetch routes: " + e.getMessage()));
         }
@@ -535,8 +565,12 @@ public class RouteController {
             @RequestParam String vehicleId,
             @RequestParam String departmentId) {
 
+        if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.canAccessDepartment(departmentId)) {
+            return ResponseEntity.status(403).build();
+        }
+
         try {
-            log.info("🚀 Assigning route {} to vehicle {}", routeId, vehicleId);
+            log.info("Assigning route {} to vehicle {}", routeId, vehicleId);
 
             // Assign route to vehicle
             PreGeneratedRoute route = routeOptimizationService.assignRouteToVehicle(routeId, vehicleId);
@@ -546,7 +580,7 @@ public class RouteController {
                     .map(RouteBin::getId)
                     .collect(Collectors.toList());
 
-            log.info("📦 Route has {} bins: {}", binIds.size(), binIds);
+            log.info("Route has {} bins: {}", binIds.size(), binIds);
 
             // Start execution with specific bins
             ActiveRoute activeRoute = routeExecutionService.startRouteWithSpecificBins(
@@ -563,17 +597,17 @@ public class RouteController {
             ));
 
         } catch (IllegalArgumentException e) {
-            log.error("❌ Route not found: {}", e.getMessage());
+            log.error("Route not found: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", e.getMessage()));
 
         } catch (IllegalStateException e) {
-            log.error("❌ Route already assigned: {}", e.getMessage());
+            log.error("Route already assigned: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", e.getMessage()));
 
         } catch (Exception e) {
-            log.error("❌ Failed to assign route", e);
+            log.error("Failed to assign route", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to assign route: " + e.getMessage()));
         }
@@ -586,7 +620,7 @@ public class RouteController {
             @RequestParam String departmentId) {
 
         try {
-            log.info("🏁 Vehicle {} returned to depot", vehicleId);
+            log.info("Vehicle {} returned to depot", vehicleId);
 
             // Mark vehicle as available (should already be done)
             vehicleService.completeRoute(vehicleId);
@@ -600,7 +634,7 @@ public class RouteController {
             ));
 
         } catch (Exception e) {
-            log.error("❌ Error handling returned vehicle: {}", e.getMessage());
+            log.error("Error handling returned vehicle: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", e.getMessage()));
         }
@@ -611,7 +645,7 @@ public class RouteController {
     @PostMapping("/check-critical-bins")
     public ResponseEntity<?> checkCriticalBins() {
         try {
-            log.info("🔍 Manual critical bins check triggered");
+            log.info("Manual critical bins check triggered");
             routeOptimizationService.checkCriticalBinsAndGenerateRoutes();
 
             return ResponseEntity.ok(Map.of(
@@ -620,7 +654,7 @@ public class RouteController {
             ));
 
         } catch (Exception e) {
-            log.error("❌ Error checking critical bins: {}", e.getMessage());
+            log.error("Error checking critical bins: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", e.getMessage()));
         }
@@ -630,7 +664,7 @@ public class RouteController {
     @GetMapping("/active-vehicles")
     public ResponseEntity<List<Map<String, Object>>> getActiveVehicles() {
         List<Map<String, Object>> activeVehicles = routeExecutionService.getActiveVehiclesInfo();
-        log.info("📊 Found {} active vehicles", activeVehicles.size());
+        log.info("Found {} active vehicles", activeVehicles.size());
         return ResponseEntity.ok(activeVehicles);
     }
 
@@ -643,7 +677,7 @@ public class RouteController {
     public ResponseEntity<ActiveRoute> getActiveRoute(@PathVariable String vehicleId) {
         ActiveRoute route = routeExecutionService.getActiveRouteByVehicle(vehicleId);
         if (route != null) {
-            log.info("📍 Found active route for vehicle {}", vehicleId);
+            log.info("Found active route for vehicle {}", vehicleId);
             return ResponseEntity.ok(route);
         }
         return ResponseEntity.notFound().build();
@@ -666,7 +700,7 @@ public class RouteController {
     @PostMapping("/department/{departmentId}/generate")
     public ResponseEntity<?> generateRoutes(@PathVariable String departmentId) {
         try {
-            log.info("🔄 Manual route generation triggered for department: {}", departmentId);
+            log.info("Manual route generation triggered for department: {}", departmentId);
             routeOptimizationService.generateRoutesForDepartment(departmentId);
 
             List<PreGeneratedRoute> routes = routeOptimizationService.getAllPreGeneratedRoutes(departmentId);
@@ -678,7 +712,7 @@ public class RouteController {
             ));
 
         } catch (Exception e) {
-            log.error("❌ Error generating routes", e);
+            log.error("Error generating routes", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to generate routes: " + e.getMessage()));
         }
@@ -722,7 +756,7 @@ public class RouteController {
     @ApiResponse(responseCode = "200", description = "Auto-dispatch triggered")
     @PostMapping("/auto-dispatch/trigger/{departmentId}")
     public ResponseEntity<?> triggerAutoDispatch(@PathVariable String departmentId) {
-        log.info("🤖 Manual auto-dispatch triggered for department: {}", departmentId);
+        log.info("Manual auto-dispatch triggered for department: {}", departmentId);
         Map<String, Object> result = autoDispatchService.triggerAutoDispatch(departmentId);
         return ResponseEntity.ok(result);
     }
@@ -766,7 +800,7 @@ public class RouteController {
             route.clearRerouteHistory();
             routeExecutionService.saveRoute(route);
             
-            log.info("🆘 Vehicle {} unblocked manually, will attempt rescue reroute", vehicleId);
+            log.info("Vehicle {} unblocked manually, will attempt rescue reroute", vehicleId);
             
             return ResponseEntity.ok(Map.of(
                     "message", "Vehicle unblocked successfully",

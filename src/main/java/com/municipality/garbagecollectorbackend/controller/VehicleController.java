@@ -21,10 +21,17 @@ public class VehicleController {
     @Autowired
     private VehicleService vehicleService;
 
-    @Operation(summary = "Get all vehicles", description = "Retrieve a list of all fleet vehicles")
+    @Operation(summary = "Get all vehicles", description = "Retrieve a list of all fleet vehicles accessible to user")
     @GetMapping
     public List<Vehicle> getAllVehicles() {
-        return vehicleService.getAllVehicles();
+        if (com.municipality.garbagecollectorbackend.util.SecurityUtil.isSuperAdmin()) {
+            return vehicleService.getAllVehicles();
+        }
+        String deptId = com.municipality.garbagecollectorbackend.util.SecurityUtil.getCurrentDepartmentId();
+        if (deptId != null) {
+            return vehicleService.getVehiclesByDepartment(deptId);
+        }
+        return List.of();
     }
 
     @Operation(summary = "Get vehicle by ID", description = "Retrieve a single vehicle by its ID")
@@ -35,6 +42,11 @@ public class VehicleController {
     @GetMapping("/{id}")
     public ResponseEntity<Vehicle> getVehicleById(@Parameter(description = "Vehicle ID") @PathVariable String id) {
         return vehicleService.getVehicleById(id)
+                .filter(v -> {
+                    if (com.municipality.garbagecollectorbackend.util.SecurityUtil.isSuperAdmin()) return true;
+                    String deptId = com.municipality.garbagecollectorbackend.util.SecurityUtil.getCurrentDepartmentId();
+                    return v.getDepartment() != null && v.getDepartment().getId().equals(deptId);
+                })
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -42,7 +54,14 @@ public class VehicleController {
     @Operation(summary = "Get available vehicles", description = "Retrieve all vehicles currently available for dispatch")
     @GetMapping("/available")
     public List<Vehicle> getAvailableVehicles() {
-        return vehicleService.getAvailableVehicles();
+        if (com.municipality.garbagecollectorbackend.util.SecurityUtil.isSuperAdmin()) {
+            return vehicleService.getAvailableVehicles();
+        }
+        String deptId = com.municipality.garbagecollectorbackend.util.SecurityUtil.getCurrentDepartmentId();
+        if (deptId != null) {
+            return vehicleService.getAvailableVehiclesByDepartment(deptId);
+        }
+        return List.of();
     }
 
     @Operation(summary = "Create a new vehicle", description = "Add a new vehicle to the fleet")
@@ -53,6 +72,15 @@ public class VehicleController {
     @PostMapping
     public ResponseEntity<?> createVehicle(@RequestBody Vehicle vehicle) {
         try {
+            if (!com.municipality.garbagecollectorbackend.util.SecurityUtil.isSuperAdmin()) {
+                String deptId = com.municipality.garbagecollectorbackend.util.SecurityUtil.getCurrentDepartmentId();
+                if (deptId != null) {
+                    if (vehicle.getDepartment() == null) {
+                        vehicle.setDepartment(new com.municipality.garbagecollectorbackend.model.Department());
+                    }
+                    vehicle.getDepartment().setId(deptId);
+                }
+            }
             Vehicle saved = vehicleService.saveVehicle(vehicle);
             return ResponseEntity.ok(saved);
         } catch (RuntimeException e) {
